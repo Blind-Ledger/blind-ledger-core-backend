@@ -70,8 +70,11 @@ func (h *Hub) Broadcast(channel string, data []byte) error {
 
 func (h *Hub) broadcast(channel string, data []byte) {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for c := range h.clients[channel] {
+	conns := h.clients[channel]
+	log.Printf("✨ Broadcast to %d conn(s) on %q: %s\n", len(conns), channel, string(data))
+	for c := range conns {
+		log.Printf("   → Enviando a %p\n", c) // identifica la conexión
 		c.send(data)
 	}
+	h.mu.RUnlock()
 }

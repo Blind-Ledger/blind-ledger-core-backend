@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -13,10 +14,10 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		RedisAddr: getEnv("REDIS_ADDR", "localhosyt:6379"),
+		RedisAddr: strings.TrimSpace(getEnv("REDIS_ADDR", "localhost:6379")),
 		RedisDB:   0,
-		RedisPass: getEnv("REDIS_PASS", ""),
-		HTTPPort:  getEnv("HTTP_PORT", "8080"),
+		RedisPass: strings.TrimSpace(getEnv("REDIS_PASS", "")),
+		HTTPPort:  strings.TrimSpace(getEnv("HTTP_PORT", "8080")),
 	}
 }
 
