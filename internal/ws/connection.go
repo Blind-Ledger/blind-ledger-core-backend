@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -22,20 +23,52 @@ func (c *Connection) readPump() {
 		c.hub.Unregister(c.channel, c)
 		c.ws.Close()
 	}()
+
 	for {
-		// 1) Lee el raw message
 		_, raw, err := c.ws.ReadMessage()
 		if err != nil {
-			log.Printf("❌ WebSocket ReadMessage error (canal %s): %v\n", c.channel, err)
+			log.Printf("❌ ReadMessage error: %v\n", err)
 			break
 		}
+		// 1) Unpack
+		msgType, payloadRaw, err := UnpackInbound(raw)
+		if err != nil {
+			// opcional: enviar PackOutbound(TypeError,…)
+			continue
+		}
+		// 2) Switch sobre msgType
+		switch msgType {
+		case TypeJoin:
+			var p InboundPayload
+			json.Unmarshal(payloadRaw, &p)
+			state := c.hub.mgr.Join(c.channel, p.Player)
+			out, _ := PackOutbound(TypeUpdate, 1, OutboundPayload{State: state})
+			c.hub.Broadcast(c.channel, out)
 
-		// 2) Loguea el contenido recibido
-		log.Printf("📨 Mensaje crudo recibido en canal %q: %s\n", c.channel, string(raw))
+		case TypeBet:
+			var b InboundPayload
+			json.Unmarshal(payloadRaw, &b)
+			state, err := c.hub.mgr.Bet(c.channel, b.Player, b.Amount)
+			if err != nil {
+				errMsg, _ := PackOutbound(TypeError, 1, OutboundPayload{Error: err.Error()})
+				c.send(errMsg)
+				continue
+			}
+			out, _ := PackOutbound(TypeUpdate, 1, OutboundPayload{State: state})
+			c.hub.Broadcast(c.channel, out)
 
-		// 3) Reenvía al hub (y por ende a Redis)
-		if err := c.hub.Broadcast(c.channel, raw); err != nil {
-			log.Printf("❌ Error al publicar en Redis: %v\n", err)
+		case TypeDistribute:
+			state, err := c.hub.mgr.Distribute(c.channel)
+			if err != nil {
+				errMsg, _ := PackOutbound(TypeError, 1, OutboundPayload{Error: err.Error()})
+				c.send(errMsg)
+				continue
+			}
+			out, _ := PackOutbound(TypeUpdate, 1, OutboundPayload{State: state})
+			c.hub.Broadcast(c.channel, out)
+
+		default:
+			// opcional: enviar error de tipo no soportado
 		}
 	}
 }

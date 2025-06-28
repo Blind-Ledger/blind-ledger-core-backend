@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/config"
+	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/game"
 	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/store"
 	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/ws"
 )
@@ -22,7 +23,8 @@ func main() {
 	redisStore := store.NewRedisStore(redisAddr, cfg.RedisPass, cfg.RedisDB)
 
 	// 2. Crea el Hub
-	hub := ws.NewHub(redisStore)
+	gameMgr := game.NewManager()
+	hub := ws.NewHub(redisStore, gameMgr)
 
 	// 3. Configura el router
 	r := mux.NewRouter()

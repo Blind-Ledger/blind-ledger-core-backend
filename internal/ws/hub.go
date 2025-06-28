@@ -4,19 +4,22 @@ import (
 	"log"
 	"sync"
 
+	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/game"
 	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/store"
 )
 
 type Hub struct {
 	store      store.Store
+	mgr        game.Manager
 	mu         sync.RWMutex
 	clients    map[string]map[*Connection]bool
 	subscribed map[string]bool
 }
 
-func NewHub(s store.Store) *Hub {
+func NewHub(s store.Store, m game.Manager) *Hub {
 	return &Hub{
 		store:      s,
+		mgr:        m,
 		clients:    make(map[string]map[*Connection]bool),
 		subscribed: make(map[string]bool),
 	}
@@ -63,7 +66,6 @@ func (h *Hub) runSubscriber(channel string) {
 }
 
 func (h *Hub) Broadcast(channel string, data []byte) error {
-	// Llamar tras recibir un mensaje cliente->servidor
 	log.Printf("▶ Publish to Redis [%s]: %s\n", channel, string(data))
 	return h.store.Publish(store.Message{Channel: channel, Data: data})
 }
