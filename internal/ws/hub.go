@@ -80,3 +80,19 @@ func (h *Hub) broadcast(channel string, data []byte) {
 	}
 	h.mu.RUnlock()
 }
+
+// BroadcastPersonalized envía mensajes personalizados a cada conexión
+// getPersonalizedMessage se llama para cada conexión para obtener el mensaje específico
+func (h *Hub) BroadcastPersonalized(channel string, getPersonalizedMessage func(*Connection) []byte) {
+	h.mu.RLock()
+	conns := h.clients[channel]
+	log.Printf("✨ Personalized broadcast to %d conn(s) on %q\n", len(conns), channel)
+	for c := range conns {
+		personalizedData := getPersonalizedMessage(c)
+		if personalizedData != nil {
+			log.Printf("   → Enviando mensaje personalizado a %p\n", c)
+			c.send(personalizedData)
+		}
+	}
+	h.mu.RUnlock()
+}

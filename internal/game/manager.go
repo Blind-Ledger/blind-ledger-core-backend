@@ -34,6 +34,12 @@ type Manager interface {
 	// Nuevos métodos para poker
 	PokerAction(tableID, playerName, action string, amount int) (*TableState, error)
 	GetTableState(tableID string) (*TableState, error)
+	GetTableStateForPlayer(tableID, playerName string) (*TableState, error) // Nuevo: estado filtrado por jugador
+
+	// Métodos para lobby/ready system
+	SetPlayerReady(tableID, playerName string, ready bool) (*TableState, error)
+	StartGame(tableID, playerName string) (*TableState, error)
+	GetReadyStatus(tableID string) (map[string]bool, error)
 
 	// Métodos para torneos
 	CreateTournament(tournamentID, name string, buyIn int, tournamentType string) (*tournament.Tournament, error)
@@ -215,6 +221,34 @@ func (m *managerImpl) GetTableState(tableID string) (*TableState, error) {
 	return t, nil
 }
 
+// GetTableStateForPlayer obtiene el estado de la mesa con cartas filtradas para un jugador específico
+func (m *managerImpl) GetTableStateForPlayer(tableID, playerName string) (*TableState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	t, ok := m.tables[tableID]
+	if !ok {
+		return nil, fmt.Errorf("mesa %s no existe", tableID)
+	}
+
+	// Crear copia del estado
+	filteredState := *t
+
+	// Sincronizar con poker engine usando función filtrada
+	if t.PokerTable != nil {
+		playerID := fmt.Sprintf("%s_%s", tableID, playerName)
+		pokerTable, err := m.pokerEngine.GetTableForPlayer(tableID, playerID)
+		if err == nil {
+			filteredState.PokerTable = pokerTable
+			filteredState.Phase = pokerTable.Phase
+			filteredState.Pot = pokerTable.Pot
+			filteredState.TurnIndex = pokerTable.CurrentPlayer
+		}
+	}
+
+	return &filteredState, nil
+}
+
 // CreateTournament crea un nuevo torneo
 func (m *managerImpl) CreateTournament(tournamentID, name string, buyIn int, tournamentType string) (*tournament.Tournament, error) {
 	m.mu.Lock()
@@ -258,4 +292,72 @@ func (m *managerImpl) GetTournament(tournamentID string) (*tournament.Tournament
 // ListTournaments lista todos los torneos
 func (m *managerImpl) ListTournaments() map[string]*tournament.Tournament {
 	return m.tournamentManager.ListTournaments()
+}
+
+// SetPlayerReady marca a un jugador como listo/no listo
+func (m *managerImpl) SetPlayerReady(tableID, playerName string, ready bool) (*TableState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Obtener el estado de la mesa
+	t, ok := m.tables[tableID]
+	if !ok {
+		return nil, fmt.Errorf("mesa %s no existe", tableID)
+	}
+
+	if t.PokerTable == nil {
+		return nil, fmt.Errorf("poker engine not initialized for table %s", tableID)
+	}
+
+	// Ejecutar en poker engine
+	playerID := fmt.Sprintf("%s_%s", tableID, playerName)
+	updatedTable, err := m.pokerEngine.SetPlayerReady(tableID, playerID, ready)
+	if err != nil {
+		return t, err
+	}
+
+	// Actualizar estado
+	t.PokerTable = updatedTable
+	t.Phase = updatedTable.Phase
+
+	return t, nil
+}
+
+// StartGame inicia el juego (solo por el host)
+func (m *managerImpl) StartGame(tableID, playerName string) (*TableState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Obtener el estado de la mesa
+	t, ok := m.tables[tableID]
+	if !ok {
+		return nil, fmt.Errorf("mesa %s no existe", tableID)
+	}
+
+	if t.PokerTable == nil {
+		return nil, fmt.Errorf("poker engine not initialized for table %s", tableID)
+	}
+
+	// Ejecutar en poker engine
+	playerID := fmt.Sprintf("%s_%s", tableID, playerName)
+	updatedTable, err := m.pokerEngine.StartGame(tableID, playerID)
+	if err != nil {
+		return t, err
+	}
+
+	// Actualizar estado
+	t.PokerTable = updatedTable
+	t.Phase = updatedTable.Phase
+	t.Pot = updatedTable.Pot
+	t.TurnIndex = updatedTable.CurrentPlayer
+
+	return t, nil
+}
+
+// GetReadyStatus obtiene el estado de ready de todos los jugadores
+func (m *managerImpl) GetReadyStatus(tableID string) (map[string]bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pokerEngine.GetReadyStatus(tableID)
 }

@@ -23,6 +23,11 @@ const (
 	TypePokerUpdate MessageType = "poker_update"
 	TypeGetState    MessageType = "get_state"
 
+	// Mensajes para lobby/ready system
+	TypeSetReady    MessageType = "set_ready"
+	TypeStartGame   MessageType = "start_game"
+	TypeReadyStatus MessageType = "ready_status"
+
 	// Mensajes para torneos
 	TypeTournamentCreate   MessageType = "tournament_create"
 	TypeTournamentRegister MessageType = "tournament_register"
@@ -39,6 +44,9 @@ type InboundPayload struct {
 
 	// Nuevos campos para poker
 	Action string `json:"action,omitempty"` // fold, call, raise, all_in
+
+	// Campos para lobby/ready system
+	Ready bool `json:"ready,omitempty"` // true/false para set_ready
 
 	// Campos para torneos
 	TournamentID   string `json:"tournament_id,omitempty"`
@@ -92,6 +100,19 @@ func (p InboundPayload) Validate(msgType MessageType) error {
 	case TypeDistribute, TypeGetState:
 		// No requieren validación especial
 
+	case TypeSetReady:
+		if p.Player == "" {
+			return fmt.Errorf("player name is required for set_ready")
+		}
+
+	case TypeStartGame:
+		if p.Player == "" {
+			return fmt.Errorf("player name is required for start_game")
+		}
+
+	case TypeReadyStatus:
+		// No requiere validación especial
+
 	case TypeTournamentCreate:
 		if p.TournamentID == "" {
 			return fmt.Errorf("tournament_id is required")
@@ -135,6 +156,10 @@ type OutboundPayload struct {
 	PlayerTurn  string `json:"player_turn,omitempty"`
 	GamePhase   string `json:"game_phase,omitempty"`
 	ActionValid bool   `json:"action_valid,omitempty"`
+
+	// Información para lobby/ready system
+	ReadyStatus map[string]bool `json:"ready_status,omitempty"`
+	IsHost      bool            `json:"is_host,omitempty"`
 
 	// Información para torneos
 	Tournament    interface{} `json:"tournament,omitempty"`
@@ -192,6 +217,7 @@ func UnpackInbound(raw []byte) (MessageType, json.RawMessage, error) {
 	// Validar tipo de mensaje
 	switch env.Type {
 	case TypeJoin, TypeBet, TypeDistribute, TypePokerAction, TypeGetState,
+		 TypeSetReady, TypeStartGame, TypeReadyStatus,
 		 TypeTournamentCreate, TypeTournamentRegister, TypeTournamentStart,
 		 TypeTournamentInfo, TypeTournamentList:
 		// Tipos válidos

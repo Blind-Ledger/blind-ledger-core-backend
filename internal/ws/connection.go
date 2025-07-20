@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -31,10 +32,11 @@ const (
 )
 
 type Connection struct {
-	ws      *websocket.Conn
-	sendCh  chan []byte
-	hub     *Hub
-	channel string
+	ws         *websocket.Conn
+	sendCh     chan []byte
+	hub        *Hub
+	channel    string
+	playerName string // Nuevo: nombre del jugador asociado a esta conexión
 }
 
 func (c *Connection) readPump() {
@@ -113,6 +115,12 @@ func (c *Connection) handleMessage(msgType MessageType, payload InboundPayload) 
 		c.handleTournamentList()
 	case TypeTournamentInfo:
 		c.handleTournamentInfo(payload)
+	case TypeSetReady:
+		c.handleSetReady(payload)
+	case TypeStartGame:
+		c.handleStartGame(payload)
+	case TypeReadyStatus:
+		c.handleReadyStatus()
 	default:
 		log.Printf("⚠️ Unhandled message type: %s", msgType)
 	}
@@ -121,17 +129,32 @@ func (c *Connection) handleMessage(msgType MessageType, payload InboundPayload) 
 func (c *Connection) handleJoin(payload InboundPayload) {
 	log.Printf("👤 Player %s joining table %s", payload.Player, c.channel)
 
+	// Asignar nombre del jugador a esta conexión
+	c.playerName = payload.Player
+
 	state := c.hub.mgr.Join(c.channel, payload.Player)
 
-	out, err := PackOutbound(TypeUpdate, 1, OutboundPayload{State: state})
-	if err != nil {
-		log.Printf("❌ Failed to pack join response: %v", err)
-		errMsg, _ := CreateErrorMessage("Internal server error")
-		c.send(errMsg)
-		return
-	}
+	// Usar broadcast personalizado para enviar estado filtrado a cada jugador
+	c.hub.BroadcastPersonalized(c.channel, func(conn *Connection) []byte {
+		if conn.playerName == "" {
+			return nil // Conexión sin jugador asignado
+		}
 
-	c.hub.Broadcast(c.channel, out)
+		// Obtener estado filtrado para este jugador específico
+		filteredState, err := c.hub.mgr.GetTableStateForPlayer(c.channel, conn.playerName)
+		if err != nil {
+			log.Printf("❌ Failed to get filtered state for %s: %v", conn.playerName, err)
+			filteredState = state // fallback al estado sin filtrar
+		}
+
+		out, err := PackOutbound(TypeUpdate, 1, OutboundPayload{State: filteredState})
+		if err != nil {
+			log.Printf("❌ Failed to pack join response for %s: %v", conn.playerName, err)
+			return nil
+		}
+
+		return out
+	})
 }
 
 func (c *Connection) handleBet(payload InboundPayload) {
@@ -262,15 +285,27 @@ func (c *Connection) handlePokerAction(payload InboundPayload) {
 		return
 	}
 
-	out, err := CreatePokerUpdate(state)
-	if err != nil {
-		log.Printf("❌ Failed to pack poker response: %v", err)
-		errMsg, _ := CreateErrorMessage("Internal server error")
-		c.send(errMsg)
-		return
-	}
+	// Usar broadcast personalizado para filtrar cartas
+	c.hub.BroadcastPersonalized(c.channel, func(conn *Connection) []byte {
+		if conn.playerName == "" {
+			return nil
+		}
 
-	c.hub.Broadcast(c.channel, out)
+		// Obtener estado filtrado para este jugador específico
+		filteredState, err := c.hub.mgr.GetTableStateForPlayer(c.channel, conn.playerName)
+		if err != nil {
+			log.Printf("❌ Failed to get filtered state for %s: %v", conn.playerName, err)
+			filteredState = state // fallback
+		}
+
+		out, err := CreatePokerUpdate(filteredState)
+		if err != nil {
+			log.Printf("❌ Failed to pack poker response for %s: %v", conn.playerName, err)
+			return nil
+		}
+
+		return out
+	})
 }
 
 func (c *Connection) handleGetState() {
@@ -427,6 +462,102 @@ func (c *Connection) handleTournamentInfo(payload InboundPayload) {
 	})
 	if err != nil {
 		log.Printf("❌ Failed to pack info response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.send(out)
+}
+
+// Lobby system handlers
+func (c *Connection) handleSetReady(payload InboundPayload) {
+	log.Printf("🔄 Player %s setting ready status to %t on table %s", payload.Player, payload.Ready, c.channel)
+
+	state, err := c.hub.mgr.SetPlayerReady(c.channel, payload.Player, payload.Ready)
+	if err != nil {
+		log.Printf("⚠️ Set ready failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	// Get ready status for all players
+	readyStatus, err := c.hub.mgr.GetReadyStatus(c.channel)
+	if err != nil {
+		log.Printf("⚠️ Failed to get ready status: %v", err)
+		readyStatus = make(map[string]bool)
+	}
+
+	out, err := PackOutbound(TypeUpdate, 1, OutboundPayload{
+		State:       state,
+		ReadyStatus: readyStatus,
+		Message:     fmt.Sprintf("Player %s is %s", payload.Player, map[bool]string{true: "ready", false: "not ready"}[payload.Ready]),
+	})
+	if err != nil {
+		log.Printf("❌ Failed to pack set ready response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.hub.Broadcast(c.channel, out)
+}
+
+func (c *Connection) handleStartGame(payload InboundPayload) {
+	log.Printf("🚀 Player %s attempting to start game on table %s", payload.Player, c.channel)
+
+	state, err := c.hub.mgr.StartGame(c.channel, payload.Player)
+	if err != nil {
+		log.Printf("⚠️ Start game failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	// Usar broadcast personalizado para filtrar cartas al iniciar el juego
+	c.hub.BroadcastPersonalized(c.channel, func(conn *Connection) []byte {
+		if conn.playerName == "" {
+			return nil
+		}
+
+		// Obtener estado filtrado para este jugador específico
+		filteredState, err := c.hub.mgr.GetTableStateForPlayer(c.channel, conn.playerName)
+		if err != nil {
+			log.Printf("❌ Failed to get filtered state for %s: %v", conn.playerName, err)
+			filteredState = state // fallback
+		}
+
+		out, err := PackOutbound(TypeUpdate, 1, OutboundPayload{
+			State:   filteredState,
+			Message: "Game started! Cards have been dealt.",
+		})
+		if err != nil {
+			log.Printf("❌ Failed to pack start game response for %s: %v", conn.playerName, err)
+			return nil
+		}
+
+		return out
+	})
+}
+
+func (c *Connection) handleReadyStatus() {
+	log.Printf("📊 Getting ready status for table %s", c.channel)
+
+	readyStatus, err := c.hub.mgr.GetReadyStatus(c.channel)
+	if err != nil {
+		log.Printf("⚠️ Get ready status failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	out, err := PackOutbound(TypeReadyStatus, 1, OutboundPayload{
+		ReadyStatus: readyStatus,
+		Message:     "Ready status",
+	})
+	if err != nil {
+		log.Printf("❌ Failed to pack ready status response: %v", err)
 		errMsg, _ := CreateErrorMessage("Internal server error")
 		c.send(errMsg)
 		return

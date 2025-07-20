@@ -23,6 +23,8 @@ type PokerPlayer struct {
 	IsActive   bool   `json:"is_active"`
 	HasFolded  bool   `json:"has_folded"`
 	CurrentBet int    `json:"current_bet"`
+	IsReady    bool   `json:"is_ready"`    // Nuevo: ¿Está listo para jugar?
+	IsHost     bool   `json:"is_host"`     // Nuevo: ¿Es el host de la mesa?
 }
 
 // PokerTable representa el estado completo de una mesa de poker
@@ -89,6 +91,9 @@ func (pe *PokerEngine) AddPlayer(tableID, playerID, playerName string) (*PokerTa
 		return table, fmt.Errorf("table is full")
 	}
 
+	// Determinar si es el host (primer jugador)
+	isHost := len(table.Players) == 0
+	
 	// Agregar jugador
 	player := PokerPlayer{
 		ID:         playerID,
@@ -99,20 +104,108 @@ func (pe *PokerEngine) AddPlayer(tableID, playerID, playerName string) (*PokerTa
 		IsActive:   true,
 		HasFolded:  false,
 		CurrentBet: 0,
+		IsReady:    false, // Por defecto no está listo
+		IsHost:     isHost, // Primer jugador es host
 	}
 
 	table.Players = append(table.Players, player)
 
-	// Iniciar juego si hay al menos 2 jugadores y no hay mano en progreso
-	if len(table.Players) >= 2 && table.Phase == "waiting" {
-		pe.startHand(table)
-	} else if table.Phase != "waiting" {
+	// YA NO auto-start - Solo cambiar fase si está "waiting" → "lobby"
+	if table.Phase == "waiting" && len(table.Players) >= 1 {
+		table.Phase = "lobby" // Nuevo estado: esperando que los jugadores estén listos
+	} else if table.Phase != "waiting" && table.Phase != "lobby" {
 		// Si hay una mano en progreso, el jugador debe esperar a la siguiente mano
 		// Marcar como inactivo hasta la siguiente mano
 		table.Players[len(table.Players)-1].IsActive = false
 	}
 
 	return table, nil
+}
+
+// SetPlayerReady marca a un jugador como listo/no listo
+func (pe *PokerEngine) SetPlayerReady(tableID, playerID string, ready bool) (*PokerTable, error) {
+	table, exists := pe.tables[tableID]
+	if !exists {
+		return nil, fmt.Errorf("table not found")
+	}
+
+	// Encontrar jugador
+	playerIndex := -1
+	for i, player := range table.Players {
+		if player.ID == playerID {
+			playerIndex = i
+			break
+		}
+	}
+
+	if playerIndex == -1 {
+		return nil, fmt.Errorf("player not found")
+	}
+
+	// Solo se puede marcar ready en lobby
+	if table.Phase != "lobby" {
+		return nil, fmt.Errorf("can only set ready status in lobby")
+	}
+
+	table.Players[playerIndex].IsReady = ready
+	return table, nil
+}
+
+// StartGame inicia el juego manualmente (solo por el host)
+func (pe *PokerEngine) StartGame(tableID, playerID string) (*PokerTable, error) {
+	table, exists := pe.tables[tableID]
+	if !exists {
+		return nil, fmt.Errorf("table not found")
+	}
+
+	// Verificar que sea el host
+	var isHost bool
+	for _, player := range table.Players {
+		if player.ID == playerID && player.IsHost {
+			isHost = true
+			break
+		}
+	}
+
+	if !isHost {
+		return nil, fmt.Errorf("only the host can start the game")
+	}
+
+	// Verificar que estemos en lobby
+	if table.Phase != "lobby" {
+		return nil, fmt.Errorf("game can only be started from lobby")
+	}
+
+	// Verificar que haya al menos 2 jugadores
+	if len(table.Players) < 2 {
+		return nil, fmt.Errorf("need at least 2 players to start")
+	}
+
+	// Verificar que todos estén listos
+	for _, player := range table.Players {
+		if !player.IsReady {
+			return nil, fmt.Errorf("all players must be ready to start (player %s is not ready)", player.Name)
+		}
+	}
+
+	// Iniciar el juego
+	pe.startHand(table)
+	return table, nil
+}
+
+// GetReadyStatus obtiene el estado de "ready" de todos los jugadores
+func (pe *PokerEngine) GetReadyStatus(tableID string) (map[string]bool, error) {
+	table, exists := pe.tables[tableID]
+	if !exists {
+		return nil, fmt.Errorf("table not found")
+	}
+
+	status := make(map[string]bool)
+	for _, player := range table.Players {
+		status[player.Name] = player.IsReady
+	}
+
+	return status, nil
 }
 
 // startHand inicia una nueva mano
@@ -332,14 +425,9 @@ func (pe *PokerEngine) completeHand(table *PokerTable) {
 		table.Pot = 0
 	}
 
-	// Preparar próxima mano
-	time.AfterFunc(3*time.Second, func() {
-		if pe.hasEnoughActivePlayers(table) {
-			pe.startHand(table)
-		} else {
-			table.Phase = "waiting"
-		}
-	})
+	// Ya NO auto-restart - Las nuevas manos se inician manualmente
+	// El juego permanece en showdown hasta que se inicie manualmente una nueva ronda
+	// Esto permite que los jugadores vean los resultados y decidan cuándo continuar
 }
 
 // hasEnoughActivePlayers verifica si hay suficientes jugadores para continuar
@@ -381,4 +469,34 @@ func (pe *PokerEngine) GetTable(tableID string) (*PokerTable, error) {
 		return nil, fmt.Errorf("table not found")
 	}
 	return table, nil
+}
+
+// GetTableForPlayer obtiene el estado de la mesa filtrando cartas privadas
+// Solo muestra las cartas del jugador solicitante, ocultando las de otros jugadores
+func (pe *PokerEngine) GetTableForPlayer(tableID, playerID string) (*PokerTable, error) {
+	table, exists := pe.tables[tableID]
+	if !exists {
+		return nil, fmt.Errorf("table not found")
+	}
+
+	// Crear una copia del estado de la mesa
+	filteredTable := *table
+	filteredTable.Players = make([]PokerPlayer, len(table.Players))
+	
+	// Copiar jugadores pero filtrar cartas privadas
+	for i, player := range table.Players {
+		filteredTable.Players[i] = player
+		
+		// Solo mostrar cartas del jugador solicitante
+		if player.ID != playerID {
+			// Ocultar cartas de otros jugadores
+			filteredTable.Players[i].Cards = make([]Card, len(player.Cards))
+			// Mantener el número de cartas pero sin mostrar los valores
+			for j := range player.Cards {
+				filteredTable.Players[i].Cards[j] = Card{Suit: "hidden", Rank: "?"}
+			}
+		}
+	}
+	
+	return &filteredTable, nil
 }

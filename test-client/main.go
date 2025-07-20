@@ -23,6 +23,7 @@ type Payload struct {
 	Player         string `json:"player,omitempty"`
 	Amount         int    `json:"amount,omitempty"`
 	Action         string `json:"action,omitempty"`
+	Ready          bool   `json:"ready,omitempty"`
 	TournamentID   string `json:"tournament_id,omitempty"`
 	TournamentName string `json:"tournament_name,omitempty"`
 	BuyIn          int    `json:"buy_in,omitempty"`
@@ -110,6 +111,12 @@ func main() {
 
 func printHelp() {
 	fmt.Println(`
+🏁 COMANDOS DE LOBBY:
+  ready                   - Marcar como listo
+  not_ready              - Marcar como no listo
+  start_game             - Iniciar juego (solo host)
+  ready_status           - Ver estado de jugadores listos
+
 🎮 COMANDOS DE POKER:
   call                    - Hacer call
   raise <amount>          - Hacer raise (ej: raise 50)
@@ -143,6 +150,36 @@ func handleCommand(c *websocket.Conn, playerName, input string) {
 	var msg Message
 
 	switch command {
+	// Lobby commands
+	case "ready":
+		msg = Message{
+			Type:    "set_ready",
+			Version: 1,
+			Payload: Payload{Player: playerName, Ready: true},
+		}
+
+	case "not_ready":
+		msg = Message{
+			Type:    "set_ready",
+			Version: 1,
+			Payload: Payload{Player: playerName, Ready: false},
+		}
+
+	case "start_game":
+		msg = Message{
+			Type:    "start_game",
+			Version: 1,
+			Payload: Payload{Player: playerName},
+		}
+
+	case "ready_status":
+		msg = Message{
+			Type:    "ready_status",
+			Version: 1,
+			Payload: Payload{},
+		}
+
+	// Poker commands
 	case "call":
 		msg = Message{
 			Type:    "poker_action",
