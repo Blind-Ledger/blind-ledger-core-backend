@@ -4,8 +4,8 @@ import (
 	"log"
 	"sync"
 
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/game"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/store"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/game"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/store"
 )
 
 type Hub struct {

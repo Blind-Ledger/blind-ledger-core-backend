@@ -8,9 +8,9 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/game"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/store"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/ws"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/game"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/store"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/ws"
 )
 
 func TestWebSocketFlow(t *testing.T) {

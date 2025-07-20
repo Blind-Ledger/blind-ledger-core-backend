@@ -3,7 +3,7 @@ package game_test
 import (
 	"testing"
 
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/game"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/game"
 )
 
 func TestManager_JoinAndTurns(t *testing.T) {

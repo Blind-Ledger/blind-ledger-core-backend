@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/config"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/game"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/store"
+	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/ws"
 	"github.com/gorilla/mux"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/config"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/game"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/store"
-	"github.com/zkCaleb-dev/Poker-Off-Chain/internal/ws"
 )
 
 func main() {
@@ -30,10 +30,19 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/ws/{tableId}", ws.ServeWS(hub))
 
-	// 4. Arranca HTTP + WS
-	port := strings.TrimSpace(cfg.HTTPPort) // elimina espacios o saltos de línea
-	addr := ":" + port                      // ahora es seguro: ":8080"
-	log.Printf("Servidor escuchando en %s\n", addr)
+	// 4. Endpoint de salud
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}).Methods("GET")
+
+	// 5. Arranca HTTP + WS
+	port := strings.TrimSpace(cfg.HTTPPort)
+	addr := ":" + port
+	log.Printf("🚀 Servidor escuchando en %s", addr)
+	log.Printf("📡 WebSocket: ws://localhost%s/ws/{tableId}", addr)
+	log.Printf("💚 Health check: http://localhost%s/health", addr)
+
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatal(err)
 	}

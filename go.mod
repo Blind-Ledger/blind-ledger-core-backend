@@ -1,4 +1,4 @@
-module github.com/zkCaleb-dev/Poker-Off-Chain
+module github.com/Blind-Ledger/blind-ledger-core-backend
 
 go 1.22.0
 
