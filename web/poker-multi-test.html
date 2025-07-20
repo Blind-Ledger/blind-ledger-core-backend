@@ -323,6 +323,7 @@
                 </div>
                 
                 <div class="player-controls">
+                    <button class="btn btn-poker" onclick="pokerAction('alice', 'check')">Check</button>
                     <button class="btn btn-poker" onclick="pokerAction('alice', 'call')">Call</button>
                     <button class="btn btn-poker" onclick="pokerAction('alice', 'fold')">Fold</button>
                     <button class="btn btn-poker" onclick="pokerAction('alice', 'all_in')">All-in</button>
@@ -357,6 +358,7 @@
                 </div>
                 
                 <div class="player-controls">
+                    <button class="btn btn-poker" onclick="pokerAction('bob', 'check')">Check</button>
                     <button class="btn btn-poker" onclick="pokerAction('bob', 'call')">Call</button>
                     <button class="btn btn-poker" onclick="pokerAction('bob', 'fold')">Fold</button>
                     <button class="btn btn-poker" onclick="pokerAction('bob', 'all_in')">All-in</button>
@@ -391,6 +393,7 @@
                 </div>
                 
                 <div class="player-controls">
+                    <button class="btn btn-poker" onclick="pokerAction('charlie', 'check')">Check</button>
                     <button class="btn btn-poker" onclick="pokerAction('charlie', 'call')">Call</button>
                     <button class="btn btn-poker" onclick="pokerAction('charlie', 'fold')">Fold</button>
                     <button class="btn btn-poker" onclick="pokerAction('charlie', 'all_in')">All-in</button>
@@ -417,6 +420,7 @@
                 <div class="info-row"><span><strong>Fase:</strong></span><span id="gamePhase">-</span></div>
                 <div class="info-row"><span><strong>Pot:</strong></span><span id="gamePot">$0</span></div>
                 <div class="info-row"><span><strong>Blinds:</strong></span><span id="gameBlinds">-</span></div>
+                <div class="info-row"><span><strong>Apuesta Actual:</strong></span><span id="currentBet">$0</span></div>
                 <div class="info-row"><span><strong>Turno:</strong></span><span id="currentTurn">-</span></div>
             </div>
         </div>
@@ -684,6 +688,7 @@
             document.getElementById('gamePhase').textContent = table.phase;
             document.getElementById('gamePot').textContent = `$${table.pot}`;
             document.getElementById('gameBlinds').textContent = `${table.small_blind}/${table.big_blind}`;
+            document.getElementById('currentBet').textContent = `$${table.current_bet || 0}`;
             
             // Current turn with emphasis
             const currentTurnEl = document.getElementById('currentTurn');

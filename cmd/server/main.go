@@ -30,13 +30,16 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/ws/{tableId}", ws.ServeWS(hub))
 
-	// 4. Endpoint de salud
+	// 4. Servir archivos estáticos del directorio web
+	r.PathPrefix("/web/").Handler(http.StripPrefix("/web/", http.FileServer(http.Dir("./web/"))))
+
+	// 5. Endpoint de salud
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}).Methods("GET")
 
-	// 5. Arranca HTTP + WS
+	// 6. Arranca HTTP + WS
 	port := strings.TrimSpace(cfg.HTTPPort)
 	addr := ":" + port
 	log.Printf("🚀 Servidor escuchando en %s", addr)

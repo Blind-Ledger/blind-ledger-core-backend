@@ -29,17 +29,21 @@ type PokerPlayer struct {
 
 // PokerTable representa el estado completo de una mesa de poker
 type PokerTable struct {
-	ID             string        `json:"id"`
-	Players        []PokerPlayer `json:"players"`
-	CommunityCards []Card        `json:"community_cards"`
-	Pot            int           `json:"pot"`
-	CurrentPlayer  int           `json:"current_player"`
-	Phase          string        `json:"phase"` // preflop, flop, turn, river, showdown
-	Deck           []Card        `json:"-"`     // No enviar en JSON
-	StartTime      time.Time     `json:"start_time"`
-	SmallBlind     int           `json:"small_blind"`
-	BigBlind       int           `json:"big_blind"`
-	DealerPosition int           `json:"dealer_position"`
+	ID               string        `json:"id"`
+	Players          []PokerPlayer `json:"players"`
+	CommunityCards   []Card        `json:"community_cards"`
+	Pot              int           `json:"pot"`
+	CurrentPlayer    int           `json:"current_player"`
+	Phase            string        `json:"phase"` // lobby, preflop, flop, turn, river, showdown
+	Deck             []Card        `json:"-"`     // No enviar en JSON
+	StartTime        time.Time     `json:"start_time"`
+	SmallBlind       int           `json:"small_blind"`
+	BigBlind         int           `json:"big_blind"`
+	DealerPosition   int           `json:"dealer_position"`
+	CurrentBet       int           `json:"current_bet"`       // Apuesta actual más alta en esta ronda
+	LastRaiser       int           `json:"last_raiser"`       // Índice del último jugador que subió
+	PlayersToAct     []bool        `json:"players_to_act"`    // Qué jugadores necesitan actuar en esta ronda
+	BettingComplete  bool          `json:"betting_complete"`  // Si la ronda de apuestas está completa
 }
 
 // PokerEngine maneja la lógica del poker
@@ -215,6 +219,9 @@ func (pe *PokerEngine) startHand(table *PokerTable) {
 	table.CommunityCards = make([]Card, 0, 5)
 	table.Pot = 0
 	table.Phase = "preflop"
+	table.CurrentBet = table.BigBlind // La apuesta inicial es el big blind
+	table.LastRaiser = -1
+	table.BettingComplete = false
 
 	// Contar jugadores activos y reactivar a todos los que tienen fichas
 	activePlayers := make([]int, 0)
@@ -228,6 +235,12 @@ func (pe *PokerEngine) startHand(table *PokerTable) {
 		if table.Players[i].IsActive {
 			activePlayers = append(activePlayers, i)
 		}
+	}
+
+	// Inicializar array de jugadores que necesitan actuar
+	table.PlayersToAct = make([]bool, len(table.Players))
+	for _, playerIndex := range activePlayers {
+		table.PlayersToAct[playerIndex] = true
 	}
 
 	if len(activePlayers) < 2 {
@@ -280,6 +293,11 @@ func (pe *PokerEngine) postBlinds(table *PokerTable, activePlayers []int) {
 	table.Players[bbPlayerIndex].Stack -= bbAmount
 	table.Players[bbPlayerIndex].CurrentBet = bbAmount
 	table.Pot += bbAmount
+
+	// Los blinds ya han "actuado" para esta ronda preflop
+	// Pero el big blind puede aún hacer raise si vuelve a él
+	table.PlayersToAct[sbPlayerIndex] = false // Small blind ya puso su apuesta obligatoria
+	table.PlayersToAct[bbPlayerIndex] = true  // Big blind puede hacer raise cuando le toque
 }
 
 // dealCards reparte cartas a los jugadores
@@ -327,44 +345,97 @@ func (pe *PokerEngine) PlayerAction(tableID, playerID, action string, amount int
 
 	player := &table.Players[playerIndex]
 
-	// Procesar acción
+	// Procesar acción según el Texas Hold'em real
 	switch action {
 	case "fold":
 		player.HasFolded = true
 		player.IsActive = false
 
 	case "call":
-		// Por simplicidad, call = 10 fichas
-		callAmount := 10
+		// Call real: igualar la apuesta más alta actual
+		callAmount := table.CurrentBet - player.CurrentBet
+		if callAmount <= 0 {
+			return nil, fmt.Errorf("no hay apuesta que igualar")
+		}
 		if player.Stack < callAmount {
+			// All-in automático si no tiene suficientes fichas
 			callAmount = player.Stack
 		}
 		player.Stack -= callAmount
 		player.CurrentBet += callAmount
 		table.Pot += callAmount
 
-	case "raise":
-		if amount <= 0 || amount > player.Stack {
-			return nil, fmt.Errorf("invalid raise amount")
+	case "check":
+		// Check solo es válido si no hay apuesta que igualar
+		if table.CurrentBet > player.CurrentBet {
+			return nil, fmt.Errorf("no puedes hacer check, hay una apuesta que igualar")
 		}
-		player.Stack -= amount
-		player.CurrentBet += amount
-		table.Pot += amount
+		// No hacer nada, es solo pasar el turno
+
+	case "raise":
+		// Raise: igualar la apuesta actual + subir
+		callAmount := table.CurrentBet - player.CurrentBet
+		totalAmount := callAmount + amount
+		
+		if amount <= 0 {
+			return nil, fmt.Errorf("el raise debe ser positivo")
+		}
+		if totalAmount > player.Stack {
+			return nil, fmt.Errorf("no tienes suficientes fichas para este raise")
+		}
+		if amount < table.BigBlind {
+			return nil, fmt.Errorf("el raise mínimo es %d", table.BigBlind)
+		}
+
+		player.Stack -= totalAmount
+		player.CurrentBet += totalAmount
+		table.Pot += totalAmount
+		table.CurrentBet = player.CurrentBet
+		table.LastRaiser = playerIndex
+
+		// Reactivar a todos los jugadores que no han foldeado para que respondan al raise
+		for i := range table.Players {
+			if table.Players[i].IsActive && !table.Players[i].HasFolded && i != playerIndex {
+				table.PlayersToAct[i] = true
+			}
+		}
 
 	case "all_in":
+		// All-in: apostar todas las fichas
 		amount = player.Stack
+		
 		player.Stack = 0
 		player.CurrentBet += amount
 		table.Pot += amount
 
+		// Si el all-in es mayor que la apuesta actual, es un raise
+		if player.CurrentBet > table.CurrentBet {
+			table.CurrentBet = player.CurrentBet
+			table.LastRaiser = playerIndex
+			// Reactivar jugadores para que respondan
+			for i := range table.Players {
+				if table.Players[i].IsActive && !table.Players[i].HasFolded && i != playerIndex {
+					table.PlayersToAct[i] = true
+				}
+			}
+		}
+
 	default:
-		return nil, fmt.Errorf("invalid action: %s", action)
+		return nil, fmt.Errorf("acción inválida: %s", action)
 	}
 
-	// Avanzar al siguiente jugador
-	pe.nextPlayer(table)
+	// Marcar que este jugador ya actuó en esta ronda
+	table.PlayersToAct[playerIndex] = false
 
-	// Verificar si la mano terminó
+	// Verificar si la ronda de apuestas terminó
+	if pe.isBettingRoundComplete(table) {
+		pe.advanceToNextPhase(table)
+	} else {
+		// Avanzar al siguiente jugador
+		pe.nextPlayer(table)
+	}
+
+	// Verificar si la mano terminó completamente
 	if pe.isHandComplete(table) {
 		pe.completeHand(table)
 	}
@@ -387,6 +458,133 @@ func (pe *PokerEngine) nextPlayer(table *PokerTable) {
 		// Si encontramos un jugador activo, salimos
 		if table.Players[table.CurrentPlayer].IsActive && !table.Players[table.CurrentPlayer].HasFolded {
 			break
+		}
+	}
+}
+
+// isBettingRoundComplete verifica si la ronda de apuestas actual ha terminado
+func (pe *PokerEngine) isBettingRoundComplete(table *PokerTable) bool {
+	// Contar jugadores activos que no han foldeado
+	activePlayers := 0
+	for i, player := range table.Players {
+		if player.IsActive && !player.HasFolded {
+			activePlayers++
+			// Si algún jugador activo aún necesita actuar, la ronda no ha terminado
+			if table.PlayersToAct[i] {
+				return false
+			}
+		}
+	}
+	
+	// Si solo queda 1 jugador activo, la mano termina (no solo la ronda)
+	if activePlayers <= 1 {
+		return true
+	}
+
+	// Verificar que todas las apuestas estén igualadas
+	for _, player := range table.Players {
+		if player.IsActive && !player.HasFolded {
+			// Si tienen fichas y su apuesta no está igualada, la ronda no ha terminado
+			if player.Stack > 0 && player.CurrentBet != table.CurrentBet {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// advanceToNextPhase avanza a la siguiente fase del juego (flop, turn, river, showdown)
+func (pe *PokerEngine) advanceToNextPhase(table *PokerTable) {
+	// Resetear las apuestas para la nueva ronda
+	for i := range table.Players {
+		table.Players[i].CurrentBet = 0
+		// Reactivar jugadores que siguen en la mano
+		if table.Players[i].IsActive && !table.Players[i].HasFolded {
+			table.PlayersToAct[i] = true
+		}
+	}
+	
+	table.CurrentBet = 0
+	table.LastRaiser = -1
+
+	switch table.Phase {
+	case "preflop":
+		// Repartir el flop (3 cartas)
+		pe.dealFlop(table)
+		table.Phase = "flop"
+		// En post-flop, el primer jugador después del dealer actúa primero
+		pe.setFirstPlayerPostFlop(table)
+
+	case "flop":
+		// Repartir el turn (1 carta)
+		pe.dealTurn(table)
+		table.Phase = "turn"
+		pe.setFirstPlayerPostFlop(table)
+
+	case "turn":
+		// Repartir el river (1 carta)
+		pe.dealRiver(table)
+		table.Phase = "river"
+		pe.setFirstPlayerPostFlop(table)
+
+	case "river":
+		// Ir al showdown
+		table.Phase = "showdown"
+		pe.completeHand(table)
+	}
+}
+
+// dealFlop reparte las primeras 3 cartas comunitarias
+func (pe *PokerEngine) dealFlop(table *PokerTable) {
+	// Quemar una carta (descartar)
+	if len(table.Deck) > 0 {
+		table.Deck = table.Deck[1:]
+	}
+	
+	// Repartir 3 cartas
+	for i := 0; i < 3 && len(table.Deck) > 0; i++ {
+		table.CommunityCards = append(table.CommunityCards, table.Deck[0])
+		table.Deck = table.Deck[1:]
+	}
+}
+
+// dealTurn reparte la 4ta carta comunitaria
+func (pe *PokerEngine) dealTurn(table *PokerTable) {
+	// Quemar una carta
+	if len(table.Deck) > 0 {
+		table.Deck = table.Deck[1:]
+	}
+	
+	// Repartir 1 carta
+	if len(table.Deck) > 0 {
+		table.CommunityCards = append(table.CommunityCards, table.Deck[0])
+		table.Deck = table.Deck[1:]
+	}
+}
+
+// dealRiver reparte la 5ta carta comunitaria
+func (pe *PokerEngine) dealRiver(table *PokerTable) {
+	// Quemar una carta
+	if len(table.Deck) > 0 {
+		table.Deck = table.Deck[1:]
+	}
+	
+	// Repartir 1 carta
+	if len(table.Deck) > 0 {
+		table.CommunityCards = append(table.CommunityCards, table.Deck[0])
+		table.Deck = table.Deck[1:]
+	}
+}
+
+// setFirstPlayerPostFlop establece el primer jugador que actúa después del flop
+func (pe *PokerEngine) setFirstPlayerPostFlop(table *PokerTable) {
+	// En post-flop, el primer jugador activo después del dealer actúa primero
+	for i := 1; i <= len(table.Players); i++ {
+		playerIndex := (table.DealerPosition + i) % len(table.Players)
+		if table.Players[playerIndex].IsActive && !table.Players[playerIndex].HasFolded {
+			table.CurrentPlayer = playerIndex
+			return
 		}
 	}
 }
