@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blind Ledger - Frontend Integration Guide</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            font-size: 2.5em;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            font-size: 1.8em;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+        }
+        h3 {
+            color: #2c3e50;
+            margin-top: 25px;
+            font-size: 1.3em;
+        }
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e74c3c;
+        }
+        pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        pre code {
+            background: none;
+            color: inherit;
+            padding: 0;
+        }
+        .toc {
+            background: #ecf0f1;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .toc ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .toc li {
+            margin: 5px 0;
+        }
+        .toc a {
+            text-decoration: none;
+            color: #3498db;
+        }
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #3498db;
+            color: white;
+        }
+        .endpoint {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .print-break {
+            page-break-before: always;
+        }
+        @media print {
+            body { background: white; }
+            .container { box-shadow: none; }
+            pre { background: #f8f9fa; color: #2c3e50; border: 1px solid #dee2e6; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Blind Ledger - Frontend Integration Guide</h1>
+        
+        <div class="info">
+            <strong>Version:</strong> 1.0<br>
+            <strong>Protocol:</strong> WebSocket JSON<br>
+            <strong>Backend:</strong> Go 1.22+<br>
+            <strong>Date:</strong> July 2025
+        </div>
+
+        <div class="toc">
+            <h3>📋 Table of Contents</h3>
+            <ul>
+                <li><a href="#overview">1. Overview</a></li>
+                <li><a href="#websocket">2. WebSocket Connection</a></li>
+                <li><a href="#protocol">3. Message Protocol</a></li>
+                <li><a href="#poker">4. Poker Game API</a></li>
+                <li><a href="#tournament">5. Tournament API</a></li>
+                <li><a href="#errors">6. Error Handling</a></li>
+                <li><a href="#examples">7. Code Examples</a></li>
+                <li><a href="#testing">8. Testing</a></li>
+            </ul>
+        </div>
+
+        <h2 id="overview">1. Overview</h2>
+        <p>Blind Ledger is a real-time poker tournament platform with WebSocket-based communication. This guide provides everything needed for frontend integration.</p>
+
+        <h3>Key Features</h3>
+        <ul>
+            <li><strong>Real-time poker games</strong> with Texas Hold'em rules</li>
+            <li><strong>Tournament management</strong> with progressive blinds</li>
+            <li><strong>WebSocket communication</strong> for instant updates</li>
+            <li><strong>Hand evaluation</strong> with proper poker rankings</li>
+            <li><strong>Multiple table support</strong> with automatic balancing</li>
+        </ul>
+
+        <h2 id="websocket">2. WebSocket Connection</h2>
+        
+        <div class="endpoint">
+            <strong>Connection URL:</strong><br>
+            <code>ws://localhost:8080/ws/{tableId}</code>
+        </div>
+
+        <h3>Connection Example</h3>
+        <pre><code>const ws = new WebSocket('ws://localhost:8080/ws/table1');
+
+ws.onopen = function(event) {
+    console.log('Connected to Blind Ledger');
+    sendMessage('join', { player: 'PlayerName' });
+};
+
+ws.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    handleMessage(data);
+};
+
+ws.onclose = function(event) {
+    console.log('Disconnected from Blind Ledger');
+};</code></pre>
+
+        <h2 id="protocol">3. Message Protocol</h2>
+        
+        <h3>Message Structure</h3>
+        <p>All messages follow this JSON envelope format:</p>
+        
+        <pre><code>{
+    "type": "string",           // Message type identifier
+    "version": 1,               // Protocol version (always 1)
+    "payload": {},              // Message-specific data
+    "timestamp": 1000           // Optional timestamp
+}</code></pre>
+
+        <h3>Message Types</h3>
+        
+        <table>
+            <tr>
+                <th>Direction</th>
+                <th>Type</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td>Client → Server</td>
+                <td><code>join</code></td>
+                <td>Join a table</td>
+            </tr>
+            <tr>
+                <td>Client → Server</td>
+                <td><code>poker_action</code></td>
+                <td>Make poker action</td>
+            </tr>
+            <tr>
+                <td>Client → Server</td>
+                <td><code>tournament_create</code></td>
+                <td>Create tournament</td>
+            </tr>
+            <tr>
+                <td>Client → Server</td>
+                <td><code>tournament_register</code></td>
+                <td>Register for tournament</td>
+            </tr>
+            <tr>
+                <td>Server → Client</td>
+                <td><code>update</code></td>
+                <td>Table state update</td>
+            </tr>
+            <tr>
+                <td>Server → Client</td>
+                <td><code>tournament_update</code></td>
+                <td>Tournament update</td>
+            </tr>
+            <tr>
+                <td>Server → Client</td>
+                <td><code>error</code></td>
+                <td>Error message</td>
+            </tr>
+        </table>
+
+        <div class="print-break"></div>
+
+        <h2 id="poker">4. Poker Game API</h2>
+
+        <h3>Join Table</h3>
+        <div class="endpoint">
+            <strong>Send:</strong>
+            <pre><code>{
+    "type": "join",
+    "version": 1,
+    "payload": {
+        "player": "PlayerName"
+    }
+}</code></pre>
+        </div>
+
+        <h3>Poker Actions</h3>
+        
+        <div class="endpoint">
+            <strong>Call:</strong>
+            <pre><code>{
+    "type": "poker_action",
+    "version": 1,
+    "payload": {
+        "player": "PlayerName",
+        "action": "call"
+    }
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+            <strong>Raise:</strong>
+            <pre><code>{
+    "type": "poker_action",
+    "version": 1,
+    "payload": {
+        "player": "PlayerName",
+        "action": "raise",
+        "amount": 50
+    }
+}</code></pre>
+        </div>
+
+        <div class="endpoint">
+            <strong>Fold:</strong>
+            <pre><code>{
+    "type": "poker_action",
+    "version": 1,
+    "payload": {
+        "player": "PlayerName",
+        "action": "fold"
+    }
+}</code></pre>
+        </div>
+
+        <h3>Game State Response</h3>
+        <pre><code>{
+    "type": "update",
+    "version": 1,
+    "payload": {
+        "state": {
+            "poker_table": {
+                "id": "table1",
+                "players": [
+                    {
+                        "id": "table1_PlayerName",
+                        "name": "PlayerName",
+                        "stack": 1000,
+                        "cards": [
+                            {"suit": "hearts", "rank": "A"},
+                            {"suit": "spades", "rank": "K"}
+                        ],
+                        "position": 0,
+                        "is_active": true,
+                        "has_folded": false,
+                        "current_bet": 20
+                    }
+                ],
+                "community_cards": [
+                    {"suit": "hearts", "rank": "Q"},
+                    {"suit": "diamonds", "rank": "J"},
+                    {"suit": "clubs", "rank": "10"}
+                ],
+                "pot": 100,
+                "current_player": 1,
+                "phase": "flop",
+                "small_blind": 10,
+                "big_blind": 20
+            }
+        }
+    }
+}</code></pre>
+
+        <h3>Game Phases</h3>
+        <ul>
+            <li><code>waiting</code> - Waiting for players</li>
+            <li><code>preflop</code> - Before community cards</li>
+            <li><code>flop</code> - First 3 community cards dealt</li>
+            <li><code>turn</code> - 4th community card dealt</li>
+            <li><code>river</code> - 5th community card dealt</li>
+            <li><code>showdown</code> - Revealing hands and determining winner</li>
+        </ul>
+
+        <div class="print-break"></div>
+
+        <h2 id="tournament">5. Tournament API</h2>
+
+        <h3>Create Tournament</h3>
+        <div class="endpoint">
+            <strong>Send:</strong>
+            <pre><code>{
+    "type": "tournament_create",
+    "version": 1,
+    "payload": {
+        "tournament_id": "weekly_tournament",
+        "tournament_name": "Weekly Championship",
+        "buy_in": 100,
+        "tournament_type": "standard"
+    }
+}</code></pre>
+        </div>
+
+        <div class="info">
+            <strong>Tournament Types:</strong><br>
+            • <code>standard</code> - 10-minute blind levels<br>
+            • <code>turbo</code> - 5-minute blind levels
+        </div>
+
+        <h3>Register for Tournament</h3>
+        <div class="endpoint">
+            <strong>Send:</strong>
+            <pre><code>{
+    "type": "tournament_register",
+    "version": 1,
+    "payload": {
+        "tournament_id": "weekly_tournament",
+        "player": "PlayerName"
+    }
+}</code></pre>
+        </div>
+
+        <h3>Tournament Status Values</h3>
+        <ul>
+            <li><code>registering</code> - Open for registration</li>
+            <li><code>starting</code> - About to begin</li>
+            <li><code>active</code> - Tournament in progress</li>
+            <li><code>final_table</code> - Final table phase</li>
+            <li><code>finished</code> - Tournament completed</li>
+            <li><code>cancelled</code> - Tournament cancelled</li>
+        </ul>
+
+        <h2 id="errors">6. Error Handling</h2>
+
+        <h3>Error Message Format</h3>
+        <pre><code>{
+    "type": "error",
+    "version": 1,
+    "payload": {
+        "error": "Error description here"
+    }
+}</code></pre>
+
+        <h3>Common Errors</h3>
+        <div class="warning">
+            <strong>Poker Errors:</strong><br>
+            • <code>player already at table</code><br>
+            • <code>table is full</code><br>
+            • <code>not your turn</code><br>
+            • <code>invalid action: [action]</code><br>
+            • <code>invalid raise amount</code>
+        </div>
+
+        <div class="warning">
+            <strong>Tournament Errors:</strong><br>
+            • <code>tournament [id] already exists</code><br>
+            • <code>tournament [id] not found</code><br>
+            • <code>tournament registration is closed</code><br>
+            • <code>buy_in must be positive</code><br>
+            • <code>player already registered</code>
+        </div>
+
+        <div class="print-break"></div>
+
+        <h2 id="examples">7. Code Examples</h2>
+
+        <h3>Complete JavaScript Client</h3>
+        <pre><code>class BlindLedgerClient {
+    constructor(tableId, playerName) {
+        this.tableId = tableId;
+        this.playerName = playerName;
+        this.ws = null;
+        this.gameState = null;
+    }
+
+    connect() {
+        this.ws = new WebSocket(`ws://localhost:8080/ws/${this.tableId}`);
+        
+        this.ws.onopen = () => {
+            console.log('Connected to Blind Ledger');
+            this.join();
+        };
+        
+        this.ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            this.handleMessage(data);
+        };
+    }
+
+    sendMessage(type, payload) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const message = {
+                type: type,
+                version: 1,
+                payload: payload
+            };
+            this.ws.send(JSON.stringify(message));
+        }
+    }
+
+    // Poker Actions
+    join() {
+        this.sendMessage('join', { player: this.playerName });
+    }
+
+    call() {
+        this.sendMessage('poker_action', { 
+            player: this.playerName, 
+            action: 'call' 
+        });
+    }
+
+    raise(amount) {
+        this.sendMessage('poker_action', { 
+            player: this.playerName, 
+            action: 'raise', 
+            amount: amount 
+        });
+    }
+
+    fold() {
+        this.sendMessage('poker_action', { 
+            player: this.playerName, 
+            action: 'fold' 
+        });
+    }
+
+    // Tournament Actions
+    createTournament(tournamentId, name, buyIn, type = 'standard') {
+        this.sendMessage('tournament_create', {
+            tournament_id: tournamentId,
+            tournament_name: name,
+            buy_in: buyIn,
+            tournament_type: type
+        });
+    }
+
+    registerTournament(tournamentId) {
+        this.sendMessage('tournament_register', {
+            tournament_id: tournamentId,
+            player: this.playerName
+        });
+    }
+
+    handleMessage(data) {
+        switch (data.type) {
+            case 'update':
+            case 'poker_update':
+                this.gameState = data.payload.state;
+                this.onGameStateUpdate(this.gameState);
+                break;
+            case 'tournament_update':
+                this.onTournamentUpdate(data.payload);
+                break;
+            case 'error':
+                this.onError(data.payload.error);
+                break;
+        }
+    }
+
+    // Override these methods in your implementation
+    onGameStateUpdate(state) {
+        console.log('Game state updated:', state);
+    }
+
+    onTournamentUpdate(data) {
+        console.log('Tournament updated:', data);
+    }
+
+    onError(error) {
+        console.error('Game error:', error);
+    }
+}
+
+// Usage Example
+const client = new BlindLedgerClient('table1', 'Alice');
+client.connect();</code></pre>
+
+        <h3>React Hook Example</h3>
+        <pre><code>import { useState, useEffect, useRef } from 'react';
+
+export function useBlindLedger(tableId, playerName) {
+    const [gameState, setGameState] = useState(null);
+    const [tournamentData, setTournamentData] = useState(null);
+    const [error, setError] = useState(null);
+    const [connected, setConnected] = useState(false);
+    const ws = useRef(null);
+
+    useEffect(() => {
+        if (!tableId || !playerName) return;
+
+        ws.current = new WebSocket(`ws://localhost:8080/ws/${tableId}`);
+        
+        ws.current.onopen = () => {
+            setConnected(true);
+            setError(null);
+            sendMessage('join', { player: playerName });
+        };
+        
+        ws.current.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            switch (data.type) {
+                case 'update':
+                case 'poker_update':
+                    setGameState(data.payload.state);
+                    break;
+                case 'tournament_update':
+                    setTournamentData(data.payload);
+                    break;
+                case 'error':
+                    setError(data.payload.error);
+                    break;
+            }
+        };
+        
+        return () => {
+            if (ws.current) {
+                ws.current.close();
+            }
+        };
+    }, [tableId, playerName]);
+
+    const sendMessage = (type, payload) => {
+        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+            ws.current.send(JSON.stringify({
+                type: type,
+                version: 1,
+                payload: payload
+            }));
+        }
+    };
+
+    const actions = {
+        call: () => sendMessage('poker_action', { 
+            player: playerName, action: 'call' 
+        }),
+        raise: (amount) => sendMessage('poker_action', { 
+            player: playerName, action: 'raise', amount 
+        }),
+        fold: () => sendMessage('poker_action', { 
+            player: playerName, action: 'fold' 
+        }),
+        createTournament: (id, name, buyIn, type) => sendMessage('tournament_create', {
+            tournament_id: id,
+            tournament_name: name,
+            buy_in: buyIn,
+            tournament_type: type
+        }),
+        registerTournament: (id) => sendMessage('tournament_register', {
+            tournament_id: id,
+            player: playerName
+        }),
+    };
+
+    return {
+        gameState,
+        tournamentData,
+        error,
+        connected,
+        actions
+    };
+}</code></pre>
+
+        <h2 id="testing">8. Testing</h2>
+
+        <h3>Manual Testing Tools</h3>
+        <ol>
+            <li><strong>Test Client:</strong> Use the provided Go test client
+                <pre><code>cd test-client && go run main.go PlayerName table1</code></pre>
+            </li>
+            <li><strong>Web Interface:</strong> Open <code>web/poker-test.html</code> in browser</li>
+            <li><strong>wscat:</strong> Command line WebSocket client
+                <pre><code>npm install -g wscat
+wscat -c ws://localhost:8080/ws/table1</code></pre>
+            </li>
+        </ol>
+
+        <h3>Health Check</h3>
+        <pre><code>curl http://localhost:8080/health
+# Response: OK</code></pre>
+
+        <h3>Test Scenarios</h3>
+        
+        <div class="success">
+            <strong>Basic Poker Flow:</strong><br>
+            1. Connect 2+ players to same table<br>
+            2. Players automatically receive cards and blinds are posted<br>
+            3. Players take turns making actions<br>
+            4. Hand completes and winner is determined<br>
+            5. New hand starts automatically
+        </div>
+
+        <div class="success">
+            <strong>Tournament Flow:</strong><br>
+            1. Create tournament<br>
+            2. Register multiple players<br>
+            3. Start tournament<br>
+            4. Players are distributed across balanced tables<br>
+            5. Play poker with progressive blinds<br>
+            6. Final table formation when ≤6 players remain
+        </div>
+
+        <h3>Common Issues & Solutions</h3>
+        <table>
+            <tr>
+                <th>Issue</th>
+                <th>Solution</th>
+            </tr>
+            <tr>
+                <td>Connection refused</td>
+                <td>Ensure server is running on port 8080</td>
+            </tr>
+            <tr>
+                <td>Invalid table ID</td>
+                <td>Use alphanumeric table IDs</td>
+            </tr>
+            <tr>
+                <td>Message format errors</td>
+                <td>Ensure JSON is valid and includes required fields</td>
+            </tr>
+            <tr>
+                <td>Turn violations</td>
+                <td>Only current player can make actions</td>
+            </tr>
+        </table>
+
+        <div class="info">
+            <strong>Generated for Blind Ledger Poker Tournament Platform</strong><br>
+            Version 1.0 - Real-time Texas Hold'em with Tournament Support<br>
+            July 2025
+        </div>
+    </div>
+
+    <script>
+        // Add print functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const printBtn = document.createElement('button');
+            printBtn.textContent = 'Print/Save as PDF';
+            printBtn.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 10px 20px;
+                background: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                z-index: 1000;
+                font-size: 14px;
+            `;
+            printBtn.onclick = () => window.print();
+            document.body.appendChild(printBtn);
+        });
+    </script>
+</body>
+</html>

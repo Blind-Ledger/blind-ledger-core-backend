@@ -117,11 +117,14 @@ func printHelp() {
   all_in                  - Apostar todo
 
 🏆 COMANDOS DE TORNEO:
-  create_tournament <id> <name> <buyin> [type]  - Crear torneo (ej: create_tournament t1 "Weekly" 100 standard)
-  register <tournament_id>                      - Registrarse en torneo (ej: register t1)
-  start_tournament <tournament_id>              - Iniciar torneo (ej: start_tournament t1)
+  create_tournament <id> <name> <buyin> [type]  - Crear torneo
+      Ejemplos: 
+        create_tournament weekly WeeklyTournament 100 standard
+        create_tournament turbo1 TurboEvent 50 turbo
+  register <tournament_id>                      - Registrarse en torneo (ej: register weekly)
+  start_tournament <tournament_id>              - Iniciar torneo (ej: start_tournament weekly)
   list_tournaments                              - Listar torneos
-  tournament_info <tournament_id>               - Info de torneo (ej: tournament_info t1)
+  tournament_info <tournament_id>               - Info de torneo (ej: tournament_info weekly)
 
 📊 COMANDOS DE ESTADO:
   state               - Obtener estado actual
@@ -176,22 +179,43 @@ func handleCommand(c *websocket.Conn, playerName, input string) {
 	case "create_tournament":
 		if len(parts) < 4 {
 			fmt.Println("❌ Uso: create_tournament <id> <name> <buyin> [type]")
+			fmt.Println("   Ejemplo: create_tournament weekly WeeklyTournament 100 standard")
+			fmt.Println("   Ejemplo: create_tournament turbo1 TurboEvent 50 turbo")
 			return
 		}
 		tournamentType := "standard"
 		if len(parts) > 4 {
 			tournamentType = parts[4]
 		}
+		
+		// Limpiar el nombre del torneo de comillas si las tiene
+		tournamentName := parts[2]
+		if len(tournamentName) > 0 && tournamentName[0] == '"' {
+			tournamentName = tournamentName[1:]
+		}
+		if len(tournamentName) > 0 && tournamentName[len(tournamentName)-1] == '"' {
+			tournamentName = tournamentName[:len(tournamentName)-1]
+		}
+		
+		buyIn := parseInt(parts[3])
+		if buyIn <= 0 {
+			fmt.Printf("❌ Buy-in debe ser positivo, recibido: %d\n", buyIn)
+			return
+		}
+		
 		msg = Message{
 			Type:    "tournament_create",
 			Version: 1,
 			Payload: Payload{
 				TournamentID:   parts[1],
-				TournamentName: parts[2],
-				BuyIn:          parseInt(parts[3]),
+				TournamentName: tournamentName,
+				BuyIn:          buyIn,
 				TournamentType: tournamentType,
 			},
 		}
+		
+		fmt.Printf("🏆 Creando torneo: ID=%s, Name=%s, BuyIn=%d, Type=%s\n", 
+			parts[1], tournamentName, buyIn, tournamentType)
 
 	case "register":
 		if len(parts) < 2 {

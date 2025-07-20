@@ -103,9 +103,13 @@ func (pe *PokerEngine) AddPlayer(tableID, playerID, playerName string) (*PokerTa
 
 	table.Players = append(table.Players, player)
 
-	// Iniciar juego si hay al menos 2 jugadores
+	// Iniciar juego si hay al menos 2 jugadores y no hay mano en progreso
 	if len(table.Players) >= 2 && table.Phase == "waiting" {
 		pe.startHand(table)
+	} else if table.Phase != "waiting" {
+		// Si hay una mano en progreso, el jugador debe esperar a la siguiente mano
+		// Marcar como inactivo hasta la siguiente mano
+		table.Players[len(table.Players)-1].IsActive = false
 	}
 
 	return table, nil
@@ -119,12 +123,13 @@ func (pe *PokerEngine) startHand(table *PokerTable) {
 	table.Pot = 0
 	table.Phase = "preflop"
 
-	// Contar jugadores activos
+	// Contar jugadores activos y reactivar a todos los que tienen fichas
 	activePlayers := make([]int, 0)
 	for i := range table.Players {
 		table.Players[i].Cards = make([]Card, 0, 2)
 		table.Players[i].HasFolded = false
 		table.Players[i].CurrentBet = 0
+		// Reactivar todos los jugadores que tienen fichas (incluyendo los que llegaron durante la mano anterior)
 		table.Players[i].IsActive = table.Players[i].Stack > 0
 		
 		if table.Players[i].IsActive {
