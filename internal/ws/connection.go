@@ -99,6 +99,20 @@ func (c *Connection) handleMessage(msgType MessageType, payload InboundPayload) 
 		c.handleBet(payload)
 	case TypeDistribute:
 		c.handleDistribute()
+	case TypePokerAction:
+		c.handlePokerAction(payload)
+	case TypeGetState:
+		c.handleGetState()
+	case TypeTournamentCreate:
+		c.handleTournamentCreate(payload)
+	case TypeTournamentRegister:
+		c.handleTournamentRegister(payload)
+	case TypeTournamentStart:
+		c.handleTournamentStart(payload)
+	case TypeTournamentList:
+		c.handleTournamentList()
+	case TypeTournamentInfo:
+		c.handleTournamentInfo(payload)
 	default:
 		log.Printf("⚠️ Unhandled message type: %s", msgType)
 	}
@@ -234,4 +248,189 @@ func ServeWS(hub *Hub) http.HandlerFunc {
 		go conn.writePump()
 		go conn.readPump()
 	}
+}
+
+// Nuevos handlers para poker y torneos
+func (c *Connection) handlePokerAction(payload InboundPayload) {
+	log.Printf("🎮 Player %s action %s on table %s", payload.Player, payload.Action, c.channel)
+
+	state, err := c.hub.mgr.PokerAction(c.channel, payload.Player, payload.Action, payload.Amount)
+	if err != nil {
+		log.Printf("⚠️ Poker action failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	out, err := CreatePokerUpdate(state)
+	if err != nil {
+		log.Printf("❌ Failed to pack poker response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.hub.Broadcast(c.channel, out)
+}
+
+func (c *Connection) handleGetState() {
+	log.Printf("📊 Getting state for table %s", c.channel)
+
+	state, err := c.hub.mgr.GetTableState(c.channel)
+	if err != nil {
+		log.Printf("⚠️ Get state failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	out, err := CreateSuccessMessage(state, "Current state")
+	if err != nil {
+		log.Printf("❌ Failed to pack state response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.send(out)
+}
+
+func (c *Connection) handleTournamentCreate(payload InboundPayload) {
+	log.Printf("🏆 Creating tournament %s: %s", payload.TournamentID, payload.TournamentName)
+
+	tournament, err := c.hub.mgr.CreateTournament(payload.TournamentID, payload.TournamentName, payload.BuyIn, payload.TournamentType)
+	if err != nil {
+		log.Printf("⚠️ Tournament creation failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	out, err := PackOutbound(TypeTournamentUpdate, 1, OutboundPayload{
+		Tournament: tournament,
+		Message:    "Tournament created successfully",
+	})
+	if err != nil {
+		log.Printf("❌ Failed to pack tournament response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.send(out)
+}
+
+func (c *Connection) handleTournamentRegister(payload InboundPayload) {
+	log.Printf("📝 Player %s registering for tournament %s", payload.Player, payload.TournamentID)
+
+	playerID := payload.Player + "_" + c.channel
+	err := c.hub.mgr.RegisterForTournament(payload.TournamentID, playerID, payload.Player)
+	if err != nil {
+		log.Printf("⚠️ Tournament registration failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	tournament, err := c.hub.mgr.GetTournament(payload.TournamentID)
+	if err != nil {
+		log.Printf("⚠️ Failed to get tournament after registration: %v", err)
+		errMsg, _ := CreateErrorMessage("Registration may have succeeded but cannot confirm")
+		c.send(errMsg)
+		return
+	}
+
+	out, err := PackOutbound(TypeTournamentUpdate, 1, OutboundPayload{
+		Tournament:   tournament,
+		Registered:   true,
+		PlayersCount: tournament.GetPlayerCount(),
+		Message:      "Successfully registered for tournament",
+	})
+	if err != nil {
+		log.Printf("❌ Failed to pack registration response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.send(out)
+}
+
+func (c *Connection) handleTournamentStart(payload InboundPayload) {
+	log.Printf("🚀 Starting tournament %s", payload.TournamentID)
+
+	err := c.hub.mgr.StartTournament(payload.TournamentID)
+	if err != nil {
+		log.Printf("⚠️ Tournament start failed: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	tournament, err := c.hub.mgr.GetTournament(payload.TournamentID)
+	if err != nil {
+		log.Printf("⚠️ Failed to get tournament after start: %v", err)
+		errMsg, _ := CreateErrorMessage("Tournament may have started but cannot confirm")
+		c.send(errMsg)
+		return
+	}
+
+	out, err := PackOutbound(TypeTournamentUpdate, 1, OutboundPayload{
+		Tournament: tournament,
+		Message:    "Tournament started successfully",
+	})
+	if err != nil {
+		log.Printf("❌ Failed to pack start response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.send(out)
+}
+
+func (c *Connection) handleTournamentList() {
+	log.Printf("📋 Listing tournaments")
+
+	tournaments := c.hub.mgr.ListTournaments()
+
+	out, err := PackOutbound(TypeTournamentUpdate, 1, OutboundPayload{
+		Tournaments: tournaments,
+		Message:     "Tournament list",
+	})
+	if err != nil {
+		log.Printf("❌ Failed to pack list response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.send(out)
+}
+
+func (c *Connection) handleTournamentInfo(payload InboundPayload) {
+	log.Printf("ℹ️ Getting tournament info for %s", payload.TournamentID)
+
+	tournament, err := c.hub.mgr.GetTournament(payload.TournamentID)
+	if err != nil {
+		log.Printf("⚠️ Failed to get tournament: %v", err)
+		errMsg, _ := CreateErrorMessage(err.Error())
+		c.send(errMsg)
+		return
+	}
+
+	out, err := PackOutbound(TypeTournamentUpdate, 1, OutboundPayload{
+		Tournament:   tournament,
+		PlayersCount: tournament.GetPlayerCount(),
+		BlindLevel:   tournament.GetCurrentBlindLevel(),
+		Message:      "Tournament information",
+	})
+	if err != nil {
+		log.Printf("❌ Failed to pack info response: %v", err)
+		errMsg, _ := CreateErrorMessage("Internal server error")
+		c.send(errMsg)
+		return
+	}
+
+	c.send(out)
 }

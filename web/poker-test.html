@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blind Ledger - Test de Torneos</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #0f1419;
+            color: #e6e6e6;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        .section { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #1a1f2e;
+        }
+        button { 
+            margin: 5px; 
+            padding: 8px 16px; 
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background: #45a049; }
+        button:disabled { 
+            background: #666; 
+            cursor: not-allowed; 
+        }
+        .poker-button { background: #2196f3; }
+        .poker-button:hover { background: #1976d2; }
+        .tournament-button { background: #ff9800; }
+        .tournament-button:hover { background: #f57c00; }
+        input, select { 
+            margin: 5px; 
+            padding: 8px; 
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #333;
+            color: #e6e6e6;
+        }
+        .log { 
+            height: 200px; 
+            overflow-y: scroll; 
+            border: 1px solid #555; 
+            padding: 10px; 
+            background: #000;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .status { 
+            padding: 10px; 
+            border-radius: 4px; 
+            margin: 10px 0; 
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .cards { 
+            display: flex; 
+            gap: 5px; 
+            margin: 10px 0; 
+        }
+        .card { 
+            padding: 5px 8px; 
+            background: #fff; 
+            color: #000; 
+            border-radius: 4px; 
+            font-weight: bold; 
+            min-width: 30px; 
+            text-align: center; 
+        }
+        .suit-hearts, .suit-diamonds { color: #d32f2f; }
+        .suit-clubs, .suit-spades { color: #000; }
+        h1 { color: #4caf50; }
+        h2 { color: #2196f3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏆 Blind Ledger - Test de Torneos de Poker</h1>
+        
+        <div class="section">
+            <h2>🔗 Conexión</h2>
+            <input type="text" id="playerName" placeholder="Nombre del jugador" value="Player1">
+            <input type="text" id="tableId" placeholder="ID de mesa" value="table1">
+            <button onclick="connect()">Conectar</button>
+            <button onclick="disconnect()">Desconectar</button>
+            <div id="connectionStatus" class="status disconnected">Desconectado</div>
+        </div>
+
+        <div class="section">
+            <h2>🏆 Gestión de Torneos</h2>
+            <div>
+                <input type="text" id="tournamentId" placeholder="ID del torneo" value="test1">
+                <input type="text" id="tournamentName" placeholder="Nombre del torneo" value="Test Tournament">
+                <input type="number" id="buyIn" placeholder="Buy-in" value="100">
+                <select id="tournamentType">
+                    <option value="standard">Standard</option>
+                    <option value="turbo">Turbo</option>
+                </select>
+            </div>
+            <div>
+                <button class="tournament-button" onclick="createTournament()">Crear Torneo</button>
+                <button class="tournament-button" onclick="registerTournament()">Registrarse</button>
+                <button class="tournament-button" onclick="startTournament()">Iniciar Torneo</button>
+                <button class="tournament-button" onclick="listTournaments()">Listar Torneos</button>
+                <button class="tournament-button" onclick="tournamentInfo()">Info Torneo</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🎮 Acciones de Poker</h2>
+            <button class="poker-button" onclick="pokerAction('call')">Call</button>
+            <button class="poker-button" onclick="pokerAction('fold')">Fold</button>
+            <button class="poker-button" onclick="pokerAction('all_in')">All-in</button>
+            <input type="number" id="raiseAmount" placeholder="Monto" value="50">
+            <button class="poker-button" onclick="raiseAction()">Raise</button>
+            <button onclick="getState()">Ver Estado</button>
+        </div>
+
+        <div class="section">
+            <h2>📊 Estado del Juego</h2>
+            <div id="gameState">
+                <p>Conecta para ver el estado del juego...</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📝 Log de Mensajes</h2>
+            <div id="messageLog" class="log"></div>
+            <button onclick="clearLog()">Limpiar Log</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let playerName = '';
+
+        function connect() {
+            playerName = document.getElementById('playerName').value;
+            const tableId = document.getElementById('tableId').value;
+            
+            if (!playerName) {
+                alert('Por favor ingresa un nombre de jugador');
+                return;
+            }
+
+            const wsUrl = `ws://localhost:8080/ws/${tableId}`;
+            log(`🔗 Conectando a ${wsUrl} como ${playerName}...`);
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                log('✅ Conectado al servidor');
+                updateConnectionStatus(true);
+                
+                // Auto-join
+                sendMessage('join', { player: playerName });
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                log(`📨 Recibido: ${JSON.stringify(data, null, 2)}`);
+                updateGameState(data);
+            };
+            
+            ws.onclose = function(event) {
+                log('🔌 Conexión cerrada');
+                updateConnectionStatus(false);
+            };
+            
+            ws.onerror = function(error) {
+                log(`❌ Error: ${error}`);
+                updateConnectionStatus(false);
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function sendMessage(type, payload) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ No hay conexión WebSocket');
+                return;
+            }
+
+            const message = {
+                type: type,
+                version: 1,
+                payload: payload
+            };
+
+            ws.send(JSON.stringify(message));
+            log(`📤 Enviado: ${JSON.stringify(message, null, 2)}`);
+        }
+
+        function createTournament() {
+            const tournamentId = document.getElementById('tournamentId').value;
+            const tournamentName = document.getElementById('tournamentName').value;
+            const buyIn = parseInt(document.getElementById('buyIn').value);
+            const tournamentType = document.getElementById('tournamentType').value;
+
+            sendMessage('tournament_create', {
+                tournament_id: tournamentId,
+                tournament_name: tournamentName,
+                buy_in: buyIn,
+                tournament_type: tournamentType
+            });
+        }
+
+        function registerTournament() {
+            const tournamentId = document.getElementById('tournamentId').value;
+            sendMessage('tournament_register', {
+                tournament_id: tournamentId,
+                player: playerName
+            });
+        }
+
+        function startTournament() {
+            const tournamentId = document.getElementById('tournamentId').value;
+            sendMessage('tournament_start', {
+                tournament_id: tournamentId
+            });
+        }
+
+        function listTournaments() {
+            sendMessage('tournament_list', {});
+        }
+
+        function tournamentInfo() {
+            const tournamentId = document.getElementById('tournamentId').value;
+            sendMessage('tournament_info', {
+                tournament_id: tournamentId
+            });
+        }
+
+        function pokerAction(action) {
+            sendMessage('poker_action', {
+                player: playerName,
+                action: action
+            });
+        }
+
+        function raiseAction() {
+            const amount = parseInt(document.getElementById('raiseAmount').value);
+            sendMessage('poker_action', {
+                player: playerName,
+                action: 'raise',
+                amount: amount
+            });
+        }
+
+        function getState() {
+            sendMessage('get_state', {});
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            if (connected) {
+                statusEl.textContent = `Conectado como ${playerName}`;
+                statusEl.className = 'status connected';
+            } else {
+                statusEl.textContent = 'Desconectado';
+                statusEl.className = 'status disconnected';
+            }
+        }
+
+        function updateGameState(data) {
+            const stateEl = document.getElementById('gameState');
+            
+            if (data.payload && data.payload.state) {
+                const state = data.payload.state;
+                let html = '<h3>Estado de la Mesa</h3>';
+                
+                if (state.poker_table) {
+                    const table = state.poker_table;
+                    html += `<p><strong>Fase:</strong> ${table.phase}</p>`;
+                    html += `<p><strong>Pot:</strong> $${table.pot}</p>`;
+                    html += `<p><strong>Blinds:</strong> ${table.small_blind}/${table.big_blind}</p>`;
+                    
+                    if (table.community_cards && table.community_cards.length > 0) {
+                        html += '<p><strong>Cartas Comunitarias:</strong></p>';
+                        html += '<div class="cards">';
+                        table.community_cards.forEach(card => {
+                            html += `<div class="card suit-${card.suit}">${card.rank}${getSuitSymbol(card.suit)}</div>`;
+                        });
+                        html += '</div>';
+                    }
+                    
+                    html += '<h4>Jugadores:</h4>';
+                    table.players.forEach((player, index) => {
+                        const isCurrentPlayer = index === table.current_player;
+                        html += `<div style="margin: 5px 0; padding: 5px; background: ${isCurrentPlayer ? '#333' : 'transparent'}; border-radius: 4px;">`;
+                        html += `<strong>${player.name}</strong> - Stack: $${player.stack} - Bet: $${player.current_bet}`;
+                        if (player.has_folded) html += ' (FOLD)';
+                        if (isCurrentPlayer) html += ' 👈 TURNO';
+                        html += '</div>';
+                    });
+                }
+                
+                stateEl.innerHTML = html;
+            }
+        }
+
+        function getSuitSymbol(suit) {
+            const symbols = {
+                hearts: '♥',
+                diamonds: '♦',
+                clubs: '♣',
+                spades: '♠'
+            };
+            return symbols[suit] || suit;
+        }
+
+        function log(message) {
+            const logEl = document.getElementById('messageLog');
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.innerHTML += `<div>[${timestamp}] ${message}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('messageLog').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
