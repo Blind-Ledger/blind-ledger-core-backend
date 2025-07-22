@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/poker"
 	"github.com/Blind-Ledger/blind-ledger-core-backend/internal/tournament"
@@ -47,6 +48,17 @@ type Manager interface {
 	StartTournament(tournamentID string) error
 	GetTournament(tournamentID string) (*tournament.Tournament, error)
 	ListTournaments() map[string]*tournament.Tournament
+
+	// Métodos para auto-restart
+	SetAutoRestart(tableID string, enabled bool, delay time.Duration) error
+	GetAutoRestartStatus(tableID string) (bool, time.Duration, error)
+	ForceRestartHand(tableID string) error
+
+	// Métodos para configuración de buy-in
+	JoinWithBuyIn(tableID, playerName string, buyInAmount int) (*TableState, error)
+	GetTableConfig(tableID string) (*poker.TableConfig, error)
+	UpdateTableConfig(tableID string, config poker.TableConfig) error
+	ValidateBuyIn(tableID string, buyInAmount int) error
 }
 
 // managerImpl es la implementación concreta de Manager
@@ -360,4 +372,105 @@ func (m *managerImpl) GetReadyStatus(tableID string) (map[string]bool, error) {
 	defer m.mu.Unlock()
 
 	return m.pokerEngine.GetReadyStatus(tableID)
+}
+
+// SetAutoRestart configura el auto-restart para una mesa
+func (m *managerImpl) SetAutoRestart(tableID string, enabled bool, delay time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pokerEngine.SetAutoRestart(tableID, enabled, delay)
+}
+
+// GetAutoRestartStatus obtiene el estado del auto-restart para una mesa
+func (m *managerImpl) GetAutoRestartStatus(tableID string) (bool, time.Duration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pokerEngine.GetAutoRestartStatus(tableID)
+}
+
+// ForceRestartHand fuerza el reinicio de una mano
+func (m *managerImpl) ForceRestartHand(tableID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pokerEngine.ForceRestartHand(tableID)
+}
+
+// JoinWithBuyIn permite a un jugador unirse a una mesa con un buy-in personalizado
+func (m *managerImpl) JoinWithBuyIn(tableID, playerName string, buyInAmount int) (*TableState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	t, ok := m.tables[tableID]
+	if !ok {
+		// Crear nueva tabla
+		t = &TableState{
+			Host:      playerName,
+			TurnIndex: 0,
+			Players:   make([]Player, 0),
+		}
+		m.tables[tableID] = t
+	}
+
+	// Evitar duplicados en la lista legacy
+	playerExists := false
+	for _, p := range t.Players {
+		if p.Name == playerName {
+			playerExists = true
+			break
+		}
+	}
+
+	if !playerExists {
+		t.Players = append(t.Players, Player{Name: playerName})
+	}
+
+	// Agregar al poker engine con buy-in personalizado
+	playerID := fmt.Sprintf("%s_%s", tableID, playerName)
+	pokerTable, err := m.pokerEngine.AddPlayerWithBuyIn(tableID, playerID, playerName, buyInAmount)
+	if err != nil {
+		// Si hay error, remover de la lista legacy
+		if !playerExists {
+			t.Players = t.Players[:len(t.Players)-1]
+		}
+		return t, err
+	}
+
+	// Actualizar estado
+	t.PokerTable = pokerTable
+	t.Phase = pokerTable.Phase
+	t.Pot = pokerTable.Pot
+
+	// Sincronizar TurnIndex con poker engine
+	if len(pokerTable.Players) > 0 {
+		t.TurnIndex = pokerTable.CurrentPlayer
+	}
+
+	return t, nil
+}
+
+// GetTableConfig obtiene la configuración de buy-in de una mesa
+func (m *managerImpl) GetTableConfig(tableID string) (*poker.TableConfig, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pokerEngine.GetTableConfig(tableID)
+}
+
+// UpdateTableConfig actualiza la configuración de buy-in de una mesa
+func (m *managerImpl) UpdateTableConfig(tableID string, config poker.TableConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pokerEngine.UpdateTableConfig(tableID, config)
+}
+
+// ValidateBuyIn valida si un monto de buy-in es válido para una mesa
+func (m *managerImpl) ValidateBuyIn(tableID string, buyInAmount int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pokerEngine.ValidateBuyIn(tableID, buyInAmount)
 }

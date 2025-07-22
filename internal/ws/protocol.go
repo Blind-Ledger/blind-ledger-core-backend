@@ -35,6 +35,12 @@ const (
 	TypeTournamentUpdate   MessageType = "tournament_update"
 	TypeTournamentList     MessageType = "tournament_list"
 	TypeTournamentInfo     MessageType = "tournament_info"
+
+	// Mensajes para configuración de buy-in
+	TypeJoinWithBuyIn    MessageType = "join_with_buy_in"
+	TypeGetTableConfig   MessageType = "get_table_config"
+	TypeUpdateTableConfig MessageType = "update_table_config"
+	TypeValidateBuyIn    MessageType = "validate_buy_in"
 )
 
 // InboundPayload para mensajes de entrada
@@ -53,6 +59,15 @@ type InboundPayload struct {
 	TournamentName string `json:"tournament_name,omitempty"`
 	BuyIn          int    `json:"buy_in,omitempty"`
 	TournamentType string `json:"tournament_type,omitempty"` // standard, turbo
+
+	// Campos para configuración de buy-in
+	BuyInAmount  int  `json:"buy_in_amount,omitempty"`  // Cantidad de buy-in para join_with_buy_in
+	SmallBlind   int  `json:"small_blind,omitempty"`    // Para configuración de mesa
+	BigBlind     int  `json:"big_blind,omitempty"`      // Para configuración de mesa
+	MinBuyIn     int  `json:"min_buy_in,omitempty"`     // Buy-in mínimo permitido
+	MaxBuyIn     int  `json:"max_buy_in,omitempty"`     // Buy-in máximo permitido
+	IsCashGame   bool `json:"is_cash_game,omitempty"`   // true = cash game, false = torneo
+	AutoRestart  bool `json:"auto_restart,omitempty"`   // Si las manos se reinician automáticamente
 }
 
 // Validate valida el payload según el tipo de mensaje
@@ -140,6 +155,42 @@ func (p InboundPayload) Validate(msgType MessageType) error {
 	case TypeTournamentInfo, TypeTournamentList:
 		// No requieren validación especial
 
+	case TypeJoinWithBuyIn:
+		if p.Player == "" {
+			return fmt.Errorf("player name is required for join_with_buy_in")
+		}
+		if len(p.Player) > 50 {
+			return fmt.Errorf("player name too long (max 50 chars)")
+		}
+		if p.BuyInAmount <= 0 {
+			return fmt.Errorf("buy_in_amount must be positive")
+		}
+
+	case TypeGetTableConfig:
+		// No requiere validación especial
+
+	case TypeUpdateTableConfig:
+		if p.SmallBlind <= 0 {
+			return fmt.Errorf("small_blind must be positive")
+		}
+		if p.BigBlind <= 0 {
+			return fmt.Errorf("big_blind must be positive")
+		}
+		if p.MinBuyIn <= 0 {
+			return fmt.Errorf("min_buy_in must be positive")
+		}
+		if p.MaxBuyIn <= 0 {
+			return fmt.Errorf("max_buy_in must be positive")
+		}
+		if p.MinBuyIn > p.MaxBuyIn {
+			return fmt.Errorf("min_buy_in cannot be greater than max_buy_in")
+		}
+
+	case TypeValidateBuyIn:
+		if p.BuyInAmount <= 0 {
+			return fmt.Errorf("buy_in_amount must be positive")
+		}
+
 	default:
 		return fmt.Errorf("unknown message type: %s", msgType)
 	}
@@ -167,6 +218,11 @@ type OutboundPayload struct {
 	Registered    bool        `json:"registered,omitempty"`
 	PlayersCount  int         `json:"players_count,omitempty"`
 	BlindLevel    interface{} `json:"blind_level,omitempty"`
+
+	// Información para configuración de buy-in
+	TableConfig      interface{} `json:"table_config,omitempty"`      // Configuración completa de la mesa
+	BuyInValid       bool        `json:"buy_in_valid,omitempty"`      // Si el buy-in es válido
+	ValidationError  string      `json:"validation_error,omitempty"`  // Error de validación si aplica
 }
 
 // Envelope genérico para todos los mensajes
@@ -219,7 +275,8 @@ func UnpackInbound(raw []byte) (MessageType, json.RawMessage, error) {
 	case TypeJoin, TypeBet, TypeDistribute, TypePokerAction, TypeGetState,
 		 TypeSetReady, TypeStartGame, TypeReadyStatus,
 		 TypeTournamentCreate, TypeTournamentRegister, TypeTournamentStart,
-		 TypeTournamentInfo, TypeTournamentList:
+		 TypeTournamentInfo, TypeTournamentList,
+		 TypeJoinWithBuyIn, TypeGetTableConfig, TypeUpdateTableConfig, TypeValidateBuyIn:
 		// Tipos válidos
 	default:
 		return "", nil, fmt.Errorf("unknown message type: %s", env.Type)
