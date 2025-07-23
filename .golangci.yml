@@ -1,0 +1,183 @@
+run:
+  timeout: 10m
+  issues-exit-code: 1
+  tests: true
+  skip-dirs:
+    - vendor
+  skip-files:
+    - ".*_test.go$"
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters-settings:
+  staticcheck:
+    # Enable all checks
+    checks: ["all"]
+  
+  revive:
+    # Minimum confidence for issues
+    min-confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  govet:
+    # Enable all vet checks
+    enable-all: true
+    
+  gocyclo:
+    # Minimum cyclomatic complexity to report
+    min-complexity: 15
+    
+  goimports:
+    # Put imports beginning with prefix after 3rd-party packages
+    local-prefixes: github.com/Blind-Ledger/blind-ledger-core-backend
+    
+  misspell:
+    # Locale to use
+    locale: US
+    
+  lll:
+    # Max line length, lines longer will be reported
+    line-length: 120
+    
+  funlen:
+    # Max number of lines in a function
+    lines: 100
+    # Max number of statements in a function
+    statements: 50
+
+linters:
+  enable:
+    # Enabled by default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    # Additional recommended linters
+    - revive
+    - gocyclo
+    - goimports
+    - misspell
+    - lll
+    - funlen
+    - gofmt
+    - unconvert
+    - unparam
+    - nakedret
+    - prealloc
+    - exportloopref
+    - gocritic
+    - gocognit
+    - bodyclose
+    - depguard
+    - dogsled
+    - dupl
+    - goconst
+    - goerr113
+    - gomnd
+    - goprintffuncname
+    - gosec
+    - interfacer
+    - maligned
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - structcheck
+    - varcheck
+    - whitespace
+    - wsl
+  
+  disable:
+    # Disable some linters that might be too strict for now
+    - deadcode
+    - golint
+    - scopelint
+
+issues:
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - funlen
+        - goconst
+        - gocognit
+        - gomnd
+        - lll
+    
+    # Exclude known linter issues
+    - text: "weak cryptographic primitive"
+      linters:
+        - gosec
+    
+    # Exclude some staticcheck issues
+    - text: "SA9003:"
+      linters:
+        - staticcheck
+    
+    # Exclude some revive issues for test files  
+    - path: _test\.go
+      text: "should have a package comment"
+      linters:
+        - revive
+    
+    # Allow long variable names in poker context
+    - text: "var-naming: don't use underscores in Go names"
+      linters:
+        - revive
+      source: "poker"
+
+  # Maximum issues count per one linter
+  max-issues-per-linter: 0
+  
+  # Maximum count of issues with the same text
+  max-same-issues: 0
+  
+  # Show only new issues: if there are unstaged changes or untracked files
+  new: false
+
+# Severity settings
+severity:
+  default-severity: error
+  rules:
+    - linters:
+        - revive
+      severity: warning
+    - linters:
+        - govet
+        - staticcheck
+        - errcheck
+      severity: error

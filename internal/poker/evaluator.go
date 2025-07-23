@@ -109,11 +109,13 @@ func evaluateFiveCards(cards []Card) HandEvaluation {
 		suitCounts[card.Suit]++
 	}
 	
-	// Verificar flush
+	// Verificar flush - necesitamos exactamente 5 cartas del mismo palo
 	isFlush := false
-	for _, count := range suitCounts {
+	flushSuit := ""
+	for suit, count := range suitCounts {
 		if count >= 5 {
 			isFlush = true
+			flushSuit = suit
 			break
 		}
 	}
@@ -177,12 +179,22 @@ func evaluateFiveCards(cards []Card) HandEvaluation {
 	
 	// Flush
 	if isFlush {
-		highCard := CardValue(sortedCards[0].Rank)
-		return HandEvaluation{
-			Rank:     Flush,
-			Value:    600000 + highCard*1000,
-			Cards:    sortedCards,
-			RankName: "Flush",
+		// Obtener las 5 cartas más altas del palo del flush
+		flushCards := make([]Card, 0, 5)
+		for _, card := range sortedCards {
+			if card.Suit == flushSuit && len(flushCards) < 5 {
+				flushCards = append(flushCards, card)
+			}
+		}
+		
+		if len(flushCards) >= 5 {
+			highCard := CardValue(flushCards[0].Rank)
+			return HandEvaluation{
+				Rank:     Flush,
+				Value:    600000 + highCard*1000,
+				Cards:    flushCards[:5], // Solo las 5 mejores cartas del flush
+				RankName: "Flush",
+			}
 		}
 	}
 	
@@ -226,9 +238,30 @@ func evaluateFiveCards(cards []Card) HandEvaluation {
 	// One pair
 	if len(pairs) > 0 {
 		pairValue := CardValue(pairs[0])
+		
+		// Calcular kickers (las 3 cartas más altas que no sean el par)
+		kickers := make([]int, 0, 3)
+		for _, card := range sortedCards {
+			if card.Rank != pairs[0] && len(kickers) < 3 {
+				kickers = append(kickers, CardValue(card.Rank))
+			}
+		}
+		
+		// Incluir kickers en el valor
+		kickerValue := 0
+		if len(kickers) > 0 {
+			kickerValue += kickers[0] * 100 // Primer kicker
+		}
+		if len(kickers) > 1 {
+			kickerValue += kickers[1] * 10 // Segundo kicker
+		}
+		if len(kickers) > 2 {
+			kickerValue += kickers[2] // Tercer kicker
+		}
+		
 		return HandEvaluation{
 			Rank:     OnePair,
-			Value:    200000 + pairValue*1000,
+			Value:    200000 + pairValue*1000 + kickerValue,
 			Cards:    sortedCards,
 			RankName: "One Pair",
 		}

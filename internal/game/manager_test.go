@@ -27,10 +27,24 @@ func TestManager_BetTurnAdvance(t *testing.T) {
 	mgr.Join("mesa1", "A")
 	state := mgr.Join("mesa1", "B")
 
-	// Con poker engine, usaremos PokerAction en lugar de Bet
-	// El pot ya tiene blinds así que verificamos que sea > 0
+	// Inicialmente en lobby, pot = 0
+	if state.Pot != 0 {
+		t.Errorf("expected pot = 0 in lobby phase, got pot=%d", state.Pot)
+	}
+
+	// Marcar jugadores como ready
+	mgr.SetPlayerReady("mesa1", "A", true)
+	mgr.SetPlayerReady("mesa1", "B", true)
+
+	// Iniciar el juego (como host)
+	state, err := mgr.StartGame("mesa1", "A")
+	if err != nil {
+		t.Fatalf("unexpected error starting game: %v", err)
+	}
+
+	// Ahora debería haber blinds
 	if state.Pot <= 0 {
-		t.Errorf("expected pot > 0 after players join (blinds), got pot=%d", state.Pot)
+		t.Errorf("expected pot > 0 after game starts (blinds), got pot=%d", state.Pot)
 	}
 
 	// Obtener el nombre del jugador actual
@@ -41,8 +55,16 @@ func TestManager_BetTurnAdvance(t *testing.T) {
 		t.Fatalf("no poker table or invalid turn index")
 	}
 
+	// Debug info
+	t.Logf("Current player: %s (index %d)", currentPlayerName, state.TurnIndex)
+	t.Logf("Current bet: %d", state.PokerTable.CurrentBet)
+	for i, p := range state.PokerTable.Players {
+		t.Logf("Player %d (%s): bet=%d, stack=%d, needsToAct=%v", 
+			i, p.Name, p.CurrentBet, p.Stack, state.PokerTable.PlayersToAct[i])
+	}
+
 	// Hacer una acción válida con el jugador actual
-	_, err := mgr.PokerAction("mesa1", currentPlayerName, "call", 0)
+	_, err = mgr.PokerAction("mesa1", currentPlayerName, "call", 0)
 	if err != nil {
 		t.Fatalf("unexpected error when %s calls: %v", currentPlayerName, err)
 	}

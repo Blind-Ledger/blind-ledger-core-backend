@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 )
 
@@ -80,6 +81,7 @@ type TableConfig struct {
 
 // PokerEngine maneja la lógica del poker
 type PokerEngine struct {
+	mu     sync.RWMutex
 	tables map[string]*PokerTable
 }
 
@@ -89,8 +91,8 @@ func NewPokerEngine() *PokerEngine {
 	}
 }
 
-// CreateTable crea una nueva mesa de poker con configuración estándar
-func (pe *PokerEngine) CreateTable(tableID string) *PokerTable {
+// createTableInternal crea una tabla sin locks (para uso interno)
+func (pe *PokerEngine) createTableInternal(tableID string) *PokerTable {
 	table := &PokerTable{
 		ID:             tableID,
 		Players:        make([]PokerPlayer, 0, 10), // Soportar hasta 10 jugadores
@@ -117,8 +119,21 @@ func (pe *PokerEngine) CreateTable(tableID string) *PokerTable {
 	return table
 }
 
-// CreateTableWithConfig crea una mesa con configuración personalizada
-func (pe *PokerEngine) CreateTableWithConfig(tableID string, config TableConfig) *PokerTable {
+// CreateTable crea una nueva mesa de poker con configuración estándar
+func (pe *PokerEngine) CreateTable(tableID string) *PokerTable {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
+	// Verificar si ya existe
+	if existing, exists := pe.tables[tableID]; exists {
+		return existing
+	}
+	
+	return pe.createTableInternal(tableID)
+}
+
+// createTableWithConfigInternal crea una tabla sin locks con configuración personalizada
+func (pe *PokerEngine) createTableWithConfigInternal(tableID string, config TableConfig) *PokerTable {
 	table := &PokerTable{
 		ID:             tableID,
 		Players:        make([]PokerPlayer, 0, 10),
@@ -145,11 +160,28 @@ func (pe *PokerEngine) CreateTableWithConfig(tableID string, config TableConfig)
 	return table
 }
 
+// CreateTableWithConfig crea una mesa con configuración personalizada
+func (pe *PokerEngine) CreateTableWithConfig(tableID string, config TableConfig) *PokerTable {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
+	// Verificar si ya existe
+	if existing, exists := pe.tables[tableID]; exists {
+		return existing
+	}
+	
+	return pe.createTableWithConfigInternal(tableID, config)
+}
+
 // AddPlayer agrega un jugador a la mesa
 func (pe *PokerEngine) AddPlayer(tableID, playerID, playerName string) (*PokerTable, error) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
 	table, exists := pe.tables[tableID]
 	if !exists {
-		table = pe.CreateTable(tableID)
+		// Crear tabla sin lock (ya tenemos el lock)
+		table = pe.createTableInternal(tableID)
 	}
 
 	// Verificar si el jugador ya existe
@@ -199,9 +231,12 @@ func (pe *PokerEngine) AddPlayer(tableID, playerID, playerName string) (*PokerTa
 
 // AddPlayerWithBuyIn agrega un jugador a la mesa con un buy-in personalizado
 func (pe *PokerEngine) AddPlayerWithBuyIn(tableID, playerID, playerName string, buyInAmount int) (*PokerTable, error) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
 	table, exists := pe.tables[tableID]
 	if !exists {
-		table = pe.CreateTable(tableID)
+		table = pe.createTableInternal(tableID)
 	}
 
 	// Validar buy-in amount
@@ -342,6 +377,11 @@ func (pe *PokerEngine) GetReadyStatus(tableID string) (map[string]bool, error) {
 	return status, nil
 }
 
+// StartHand inicia una nueva mano (exportado para testing)
+func (pe *PokerEngine) StartHand(table *PokerTable) {
+	pe.startHand(table)
+}
+
 // startHand inicia una nueva mano
 func (pe *PokerEngine) startHand(table *PokerTable) {
 	// Reiniciar deck
@@ -393,8 +433,8 @@ func (pe *PokerEngine) startHand(table *PokerTable) {
 	if len(activePlayers) > 2 {
 		table.CurrentPlayer = (table.DealerPosition + 3) % len(activePlayers)
 	} else {
-		// Heads-up: dealer actúa primero preflop
-		table.CurrentPlayer = table.DealerPosition
+		// Heads-up: el small blind (dealer) actúa primero preflop
+		table.CurrentPlayer = activePlayers[table.DealerPosition]
 	}
 }
 
@@ -404,9 +444,21 @@ func (pe *PokerEngine) postBlinds(table *PokerTable, activePlayers []int) {
 		return
 	}
 
-	// Small blind (izquierda del dealer)
-	sbPosition := (table.DealerPosition + 1) % len(activePlayers)
-	sbPlayerIndex := activePlayers[sbPosition]
+	var sbPlayerIndex, bbPlayerIndex int
+
+	if len(activePlayers) == 2 {
+		// Heads-up: dealer es small blind, otro jugador es big blind
+		sbPlayerIndex = activePlayers[table.DealerPosition]
+		bbPlayerIndex = activePlayers[(table.DealerPosition + 1) % len(activePlayers)]
+	} else {
+		// Multi-way: small blind está a la izquierda del dealer
+		sbPosition := (table.DealerPosition + 1) % len(activePlayers)
+		sbPlayerIndex = activePlayers[sbPosition]
+		bbPosition := (table.DealerPosition + 2) % len(activePlayers)
+		bbPlayerIndex = activePlayers[bbPosition]
+	}
+
+	// Colocar small blind
 	sbAmount := table.SmallBlind
 	if table.Players[sbPlayerIndex].Stack < sbAmount {
 		sbAmount = table.Players[sbPlayerIndex].Stack
@@ -415,9 +467,7 @@ func (pe *PokerEngine) postBlinds(table *PokerTable, activePlayers []int) {
 	table.Players[sbPlayerIndex].CurrentBet = sbAmount
 	table.Pot += sbAmount
 
-	// Big blind (izquierda del small blind)
-	bbPosition := (table.DealerPosition + 2) % len(activePlayers)
-	bbPlayerIndex := activePlayers[bbPosition]
+	// Colocar big blind
 	bbAmount := table.BigBlind
 	if table.Players[bbPlayerIndex].Stack < bbAmount {
 		bbAmount = table.Players[bbPlayerIndex].Stack
@@ -428,8 +478,14 @@ func (pe *PokerEngine) postBlinds(table *PokerTable, activePlayers []int) {
 
 	// Los blinds ya han "actuado" para esta ronda preflop
 	// Pero el big blind puede aún hacer raise si vuelve a él
-	table.PlayersToAct[sbPlayerIndex] = false // Small blind ya puso su apuesta obligatoria
-	table.PlayersToAct[bbPlayerIndex] = true  // Big blind puede hacer raise cuando le toque
+	// En heads-up, el small blind (que actúa primero) debe completar la apuesta
+	if len(activePlayers) == 2 {
+		table.PlayersToAct[sbPlayerIndex] = true  // Small blind debe completar apuesta al big blind
+		table.PlayersToAct[bbPlayerIndex] = true // Big blind puede hacer raise cuando le toque
+	} else {
+		table.PlayersToAct[sbPlayerIndex] = false // Small blind ya puso su apuesta obligatoria
+		table.PlayersToAct[bbPlayerIndex] = true  // Big blind puede hacer raise cuando le toque
+	}
 }
 
 // dealCards reparte cartas a los jugadores
@@ -452,6 +508,9 @@ func (pe *PokerEngine) dealCards(table *PokerTable) {
 
 // PlayerAction procesa una acción del jugador
 func (pe *PokerEngine) PlayerAction(tableID, playerID, action string, amount int) (*PokerTable, error) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
 	table, exists := pe.tables[tableID]
 	if !exists {
 		return nil, fmt.Errorf("table not found")
@@ -738,6 +797,11 @@ func (pe *PokerEngine) isHandComplete(table *PokerTable) bool {
 	return activePlayers <= 1
 }
 
+// CompleteHand termina la mano y determina ganador (exportado para testing)
+func (pe *PokerEngine) CompleteHand(table *PokerTable) {
+	pe.completeHand(table)
+}
+
 // completeHand termina la mano y determina ganador
 func (pe *PokerEngine) completeHand(table *PokerTable) {
 	table.Phase = "showdown"
@@ -792,6 +856,9 @@ func (pe *PokerEngine) createShuffledDeck() []Card {
 
 // GetTable obtiene el estado de una mesa
 func (pe *PokerEngine) GetTable(tableID string) (*PokerTable, error) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	
 	table, exists := pe.tables[tableID]
 	if !exists {
 		return nil, fmt.Errorf("table not found")
@@ -802,6 +869,9 @@ func (pe *PokerEngine) GetTable(tableID string) (*PokerTable, error) {
 // GetTableForPlayer obtiene el estado de la mesa filtrando cartas privadas
 // Solo muestra las cartas del jugador solicitante, ocultando las de otros jugadores
 func (pe *PokerEngine) GetTableForPlayer(tableID, playerID string) (*PokerTable, error) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	
 	table, exists := pe.tables[tableID]
 	if !exists {
 		return nil, fmt.Errorf("table not found")
@@ -1021,22 +1091,30 @@ func (pe *PokerEngine) findWinnersInSidePot(sidePot SidePot, playerHands map[int
 
 // scheduleAutoRestart programa el reinicio automático de una mano después del delay configurado
 func (pe *PokerEngine) scheduleAutoRestart(tableID string) {
+	// Obtener delay con lock
+	pe.mu.RLock()
 	table, exists := pe.tables[tableID]
 	if !exists {
+		pe.mu.RUnlock()
 		return
 	}
+	restartDelay := table.RestartDelay
+	pe.mu.RUnlock()
 
-	// Esperar el delay configurado
-	time.Sleep(table.RestartDelay)
+	// Esperar el delay configurado (sin lock)
+	time.Sleep(restartDelay)
 
 	// Verificar que la mesa aún esté en showdown y tenga jugadores suficientes
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
 	table, exists = pe.tables[tableID]
 	if !exists || table.Phase != "showdown" || !pe.hasEnoughActivePlayers(table) {
 		return
 	}
 
 	// Verificar que no hayan pasado demasiado tiempo (evitar restart si los jugadores se han ido)
-	if time.Since(table.ShowdownEndTime) > table.RestartDelay*2 {
+	if time.Since(table.ShowdownEndTime) > restartDelay*2 {
 		return
 	}
 
@@ -1046,6 +1124,9 @@ func (pe *PokerEngine) scheduleAutoRestart(tableID string) {
 
 // SetAutoRestart configura el auto-restart para una mesa
 func (pe *PokerEngine) SetAutoRestart(tableID string, enabled bool, delay time.Duration) error {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	
 	table, exists := pe.tables[tableID]
 	if !exists {
 		return fmt.Errorf("table not found")
@@ -1061,6 +1142,9 @@ func (pe *PokerEngine) SetAutoRestart(tableID string, enabled bool, delay time.D
 
 // GetAutoRestartStatus obtiene el estado del auto-restart para una mesa
 func (pe *PokerEngine) GetAutoRestartStatus(tableID string) (bool, time.Duration, error) {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	
 	table, exists := pe.tables[tableID]
 	if !exists {
 		return false, 0, fmt.Errorf("table not found")
